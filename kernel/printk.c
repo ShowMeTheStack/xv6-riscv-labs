@@ -180,6 +180,7 @@ panic(char *s)
   panicking = 1;
   printk("panic: ");
   printk("%s\n", s);
+  backtrace(); // before panicked, which would freeze this hart's output too
   panicked = 1; // freeze uart output from other CPUs
   for (;;)
     ;
