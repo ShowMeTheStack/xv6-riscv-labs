@@ -144,6 +144,7 @@ extern uint     ticks;
 void            trapinit(void);
 void            trapinithart(void);
 extern struct spinlock tickslock;
+extern volatile int btwant;
 void            prepare_return(void);
 
 // uart.c

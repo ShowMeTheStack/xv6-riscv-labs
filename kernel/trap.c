@@ -9,6 +9,11 @@
 struct spinlock tickslock;
 uint ticks;
 
+// set by kbacktrace(1): the pid of a process that wants a
+// backtrace from the next timer interrupt that interrupts it
+// in the kernel. 0 means no request.
+volatile int btwant;
+
 extern char trampoline[], uservec[];
 
 // in kernelvec.S, calls kerneltrap().
@@ -151,6 +156,12 @@ kerneltrap()
     printk("scause=0x%lx sepc=0x%lx stval=0x%lx\n", scause, r_sepc(),
            r_stval());
     panic("kerneltrap");
+  }
+
+  // a backtrace across the trap, asked for by kbacktrace(1).
+  if (which_dev == 2 && myproc() != 0 && btwant == myproc()->pid) {
+    btwant = 0;
+    backtrace();
   }
 
   // give up the CPU if this is a timer interrupt.
