@@ -115,10 +115,13 @@ sys_uptime(void)
 // where 0: right here, in this system call.
 // where 1: from kerneltrap(), at the next timer interrupt that
 //          arrives while this system call is running.
+// where 2: from kerneltrap(), at the next timer interrupt that
+//          some hart takes on its scheduler stack.
 uint64
 sys_kbacktrace(void)
 {
   int where;
+  uint ticks0;
 
   argint(0, &where);
   if (where == 0) {
@@ -131,6 +134,27 @@ sys_kbacktrace(void)
     btwant = myproc()->pid;
     while (btwant != 0)
       ;
+    return 0;
+  }
+  if (where == 2) {
+    // sleep, as sys_pause does, until an idle hart has printed
+    // the backtrace. withdraw the request if no hart has taken
+    // it after 10 ticks.
+    btwant = -1;
+    acquire(&tickslock);
+    ticks0 = ticks;
+    while (btwant != 0) {
+      if (ticks - ticks0 >= 10 &&
+          __sync_bool_compare_and_swap(&btwant, -1, 0)) {
+        release(&tickslock);
+        return -1;
+      }
+      sleep_prepare(&ticks);
+      release(&tickslock);
+      sleep();
+      acquire(&tickslock);
+    }
+    release(&tickslock);
     return 0;
   }
   return -1;

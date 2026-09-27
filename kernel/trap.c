@@ -9,9 +9,11 @@
 struct spinlock tickslock;
 uint ticks;
 
-// set by kbacktrace(1): the pid of a process that wants a
-// backtrace from the next timer interrupt that interrupts it
-// in the kernel. 0 means no request.
+// a request for a backtrace from the next timer interrupt taken
+// in the kernel: the pid of a process that wants one while it is
+// in a system call (kbacktrace(1)), or -1 for a hart that is on
+// its scheduler stack (kbacktrace(2)). -2 while one is printing,
+// 0 when there is no request.
 volatile int btwant;
 
 extern char trampoline[], uservec[];
@@ -158,10 +160,15 @@ kerneltrap()
     panic("kerneltrap");
   }
 
-  // a backtrace across the trap, asked for by kbacktrace(1).
-  if (which_dev == 2 && myproc() != 0 && btwant == myproc()->pid) {
-    btwant = 0;
-    backtrace();
+  // a backtrace across the trap, asked for by kbacktrace().
+  if (which_dev == 2 && btwant != 0) {
+    int want = myproc() != 0 ? myproc()->pid : -1;
+    // two idle harts may both see -1: an atomic
+    // compare-and-swap lets exactly one of them print.
+    if (__sync_bool_compare_and_swap(&btwant, want, -2)) {
+      backtrace();
+      btwant = 0; // only now may the requester go on
+    }
   }
 
   // give up the CPU if this is a timer interrupt.
