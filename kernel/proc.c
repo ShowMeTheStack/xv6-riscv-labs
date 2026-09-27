@@ -712,6 +712,9 @@ procinfo(struct pinfo *out, int max)
   struct proc *p;
   int n = 0;
 
+  // p->parent is protected by wait_lock, which must be
+  // acquired before any p->lock.
+  acquire(&wait_lock);
   for (p = proc; p < &proc[NPROC] && n < max; p++) {
     acquire(&p->lock);
     if (p->state != UNUSED) {
@@ -719,7 +722,10 @@ procinfo(struct pinfo *out, int max)
       // pair belongs to one moment in this process's life.
       out[n].pid = p->pid;
       out[n].state = p->state;
-      out[n].ppid = 0;
+      // the parent cannot be reaped while we hold
+      // wait_lock (kwait frees under it), so its pid is
+      // stable even though we do not hold its p->lock.
+      out[n].ppid = p->parent ? p->parent->pid : 0;
       out[n].cpu = -1;
       // sz and name are private to p, which writes them
       // without p->lock (growproc, kexec), so they may be
@@ -733,5 +739,6 @@ procinfo(struct pinfo *out, int max)
     }
     release(&p->lock);
   }
+  release(&wait_lock);
   return n;
 }
