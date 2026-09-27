@@ -134,6 +134,27 @@ printk(char *fmt, ...)
   return 0;
 }
 
+// print the return addresses of the current kernel call chain,
+// newest first, by following frame pointers. every C function's
+// frame holds its return address at fp-8 and its caller's fp at
+// fp-16. a process's kernel stack is one page, so the walk stops
+// at the next page boundary above the first fp.
+void
+backtrace(void)
+{
+  uint64 fp = r_fp();
+  uint64 top = PGROUNDUP(fp);
+
+  printk("backtrace:\n");
+  while (fp < top) {
+    printk("%p\n", (void *)*(uint64 *)(fp - 8));
+    uint64 prev = *(uint64 *)(fp - 16);
+    if (prev <= fp)
+      break; // a caller's frame is always higher: the chain is broken
+    fp = prev;
+  }
+}
+
 void
 panic(char *s)
 {
