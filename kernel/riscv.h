@@ -359,6 +359,18 @@ r_ra()
   return x;
 }
 
+// read s0, the frame pointer. the kernel is compiled with
+// -fno-omit-frame-pointer, so every C function points s0
+// just above a two-word record: its return address at s0-8
+// and its caller's s0 at s0-16.
+static inline uint64
+r_fp()
+{
+  uint64 x;
+  asm volatile("mv %0, s0" : "=r"(x));
+  return x;
+}
+
 // flush the TLB.
 static inline void
 sfence_vma()
