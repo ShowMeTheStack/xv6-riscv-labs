@@ -110,3 +110,17 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// set the calling process's trace mask: bit i traces
+// system call number i. returns the previous mask.
+uint64
+sys_trace(void)
+{
+  int mask, old;
+  struct proc *p = myproc();
+
+  argint(0, &mask);
+  old = p->tracemask;
+  p->tracemask = mask;
+  return old;
+}
