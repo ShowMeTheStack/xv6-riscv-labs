@@ -710,7 +710,7 @@ int
 procinfo(struct pinfo *out, int max)
 {
   struct proc *p;
-  int n = 0;
+  int i, n = 0;
 
   // p->parent is protected by wait_lock, which must be
   // acquired before any p->lock.
@@ -726,7 +726,15 @@ procinfo(struct pinfo *out, int max)
       // wait_lock (kwait frees under it), so its pid is
       // stable even though we do not hold its p->lock.
       out[n].ppid = p->parent ? p->parent->pid : 0;
+      // a hart's c->proc changes to and from p only while
+      // p->lock is held (scheduler()), so while we hold it,
+      // p is RUNNING exactly when one c->proc points at it.
       out[n].cpu = -1;
+      if (p->state == RUNNING) {
+        for (i = 0; i < NCPU; i++)
+          if (cpus[i].proc == p)
+            out[n].cpu = i;
+      }
       // sz and name are private to p, which writes them
       // without p->lock (growproc, kexec), so they may be
       // stale, and name may be half old, half new. procdump
