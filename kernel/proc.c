@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "pinfo.h"
 
 struct cpu cpus[NCPU];
 
@@ -700,4 +701,37 @@ procdump(void)
     printk("%d %s %s", p->pid, state, p->name);
     printk("\n");
   }
+}
+
+// Fill out[] with at most max records, one per in-use slot
+// of proc[], and return how many were filled. out is a
+// kernel buffer: nothing here touches user memory.
+int
+procinfo(struct pinfo *out, int max)
+{
+  struct proc *p;
+  int n = 0;
+
+  for (p = proc; p < &proc[NPROC] && n < max; p++) {
+    acquire(&p->lock);
+    if (p->state != UNUSED) {
+      // state and pid are protected by p->lock, so the
+      // pair belongs to one moment in this process's life.
+      out[n].pid = p->pid;
+      out[n].state = p->state;
+      out[n].ppid = 0;
+      out[n].cpu = -1;
+      // sz and name are private to p, which writes them
+      // without p->lock (growproc, kexec), so they may be
+      // stale, and name may be half old, half new. procdump
+      // reads them the same way. The copy is bounded and
+      // always terminated.
+      out[n].sz = p->sz;
+      memmove(out[n].name, p->name, sizeof(out[n].name));
+      out[n].name[sizeof(out[n].name) - 1] = 0;
+      n++;
+    }
+    release(&p->lock);
+  }
+  return n;
 }

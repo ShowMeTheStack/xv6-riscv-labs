@@ -6,6 +6,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "vm.h"
+#include "pinfo.h"
 
 uint64
 sys_exit(void)
@@ -109,4 +110,36 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// procinfo(struct pinfo *buf, int max): copy a snapshot of
+// at most max in-use process slots to buf; return how many
+// records were copied, or -1.
+uint64
+sys_procinfo(void)
+{
+  uint64 addr;
+  int max, n;
+  struct pinfo *buf;
+  struct proc *p = myproc();
+
+  argaddr(0, &addr);
+  argint(1, &max);
+  if (max < 0)
+    return -1;
+  if (max > NPROC)
+    max = NPROC;
+
+  // gather into a kernel page while holding the locks,
+  // then copy out with no lock held.
+  if (sizeof(struct pinfo) * NPROC > PGSIZE)
+    panic("sys_procinfo: pinfo");
+  if ((buf = (struct pinfo *)kalloc()) == 0)
+    return -1;
+  n = procinfo(buf, max);
+  if (copyout(p->pagetable, p->sz, addr, (char *)buf,
+              n * sizeof(struct pinfo)) < 0)
+    n = -1;
+  kfree((void *)buf);
+  return n;
 }
