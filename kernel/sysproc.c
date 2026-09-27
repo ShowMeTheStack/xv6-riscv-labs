@@ -110,3 +110,18 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// print a backtrace of this system call's kernel stack,
+// to try out backtrace() from user space.
+uint64
+sys_kbacktrace(void)
+{
+  int where;
+
+  argint(0, &where);
+  if (where == 0) {
+    backtrace();
+    return 0;
+  }
+  return -1;
+}
