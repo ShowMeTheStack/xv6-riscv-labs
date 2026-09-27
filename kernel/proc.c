@@ -290,6 +290,9 @@ kfork(void)
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
+  // the child inherits the parent's trace mask.
+  np->tracemask = p->tracemask;
+
   pid = np->pid;
 
   release(&np->lock);
