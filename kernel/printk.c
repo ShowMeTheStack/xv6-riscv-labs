@@ -134,18 +134,37 @@ printk(char *fmt, ...)
   return 0;
 }
 
+extern char stack0[]; // start.c: one 4096-byte stack per hart
+
+// the top of the kernel stack that contains address fp, or 0.
+// a process's kernel stack is one page, so its top is the next
+// page boundary. stack0 is only 16-byte aligned, so the top of
+// a hart's slice of it need not be a page boundary.
+static uint64
+stacktop(uint64 fp)
+{
+  uint64 base = (uint64)stack0;
+
+  if (fp >= base && fp < base + NCPU * 4096)
+    return base + ((fp - base) / 4096 + 1) * 4096;
+  if (fp >= KSTACK(NPROC - 1) && fp < TRAMPOLINE)
+    return PGROUNDUP(fp);
+  return 0;
+}
+
 // print the return addresses of the current kernel call chain,
 // newest first, by following frame pointers. every C function's
 // frame holds its return address at fp-8 and its caller's fp at
-// fp-16. a process's kernel stack is one page, so the walk stops
-// at the next page boundary above the first fp.
+// fp-16. the walk stops at the top of the stack it started on.
 void
 backtrace(void)
 {
   uint64 fp = r_fp();
-  uint64 top = PGROUNDUP(fp);
+  uint64 top = stacktop(fp);
 
   printk("backtrace:\n");
+  if (top == 0)
+    printk("fp %p is not on a kernel stack\n", (void *)fp);
   while (fp < top) {
     printk("%p\n", (void *)*(uint64 *)(fp - 8));
     uint64 prev = *(uint64 *)(fp - 16);
