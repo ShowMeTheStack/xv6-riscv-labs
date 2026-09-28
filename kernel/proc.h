@@ -106,4 +106,5 @@ struct proc {
   int alarminterval;   // ticks between handler calls; 0 = off
   int alarmticks;      // ticks counted since the last call
   uint64 alarmhandler; // user address of the handler (0 is valid)
+  struct trapframe alarmframe; // user registers when the handler was called
 };

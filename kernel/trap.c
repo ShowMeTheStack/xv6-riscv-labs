@@ -106,6 +106,15 @@ alarmtick(struct proc *p)
   if (p->alarminterval == 0)
     return;
   p->alarmticks++;
+  if (p->alarmticks < p->alarminterval)
+    return;
+
+  // call the handler: keep a copy of every user register,
+  // then make the return to user space jump to the handler.
+  // prepare_return copies epc into sepc for userret's sret.
+  p->alarmticks = 0;
+  p->alarmframe = *p->trapframe;
+  p->trapframe->epc = p->alarmhandler;
 }
 
 //
