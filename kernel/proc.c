@@ -399,6 +399,10 @@ kwait(uint64 addr)
             release(&wait_lock);
             return -1;
           }
+          // the zombie's clock stopped for good in sched(),
+          // before its p->lock (held here) was released.
+          p->cutime += pp->utime + pp->cutime;
+          p->cstime += pp->stime + pp->cstime;
           pp->parent = 0;
           freeproc(pp);
           release(&pp->lock);
