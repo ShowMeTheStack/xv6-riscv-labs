@@ -15,6 +15,7 @@ extern char trampoline[], uservec[];
 void kernelvec();
 
 extern int devintr();
+static void alarmtick(struct proc *);
 
 void
 trapinit(void)
@@ -82,8 +83,10 @@ usertrap(void)
     kexit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if (which_dev == 2)
+  if (which_dev == 2) {
+    alarmtick(p);
     yield();
+  }
 
   prepare_return();
 
@@ -92,6 +95,17 @@ usertrap(void)
 
   // return to trampoline.S; satp value in a0.
   return satp;
+}
+
+// the timer interrupted p while it ran in user mode, on this hart.
+// every hart takes its own timer interrupts, so this counts p's
+// user CPU time on all harts, not just hart 0's ticks.
+static void
+alarmtick(struct proc *p)
+{
+  if (p->alarminterval == 0)
+    return;
+  p->alarmticks++;
 }
 
 //
