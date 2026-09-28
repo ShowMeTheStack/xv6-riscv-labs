@@ -137,6 +137,10 @@ sys_sigreturn(void)
 {
   struct proc *p = myproc();
 
+  if (!p->alarmactive)
+    return -1;
+  p->alarmactive = 0;
+
   // overwrites the epc that usertrap advanced past the ecall.
   *p->trapframe = p->alarmframe;
   // syscall() stores the return value in trapframe->a0:

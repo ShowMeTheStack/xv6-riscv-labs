@@ -103,7 +103,7 @@ usertrap(void)
 static void
 alarmtick(struct proc *p)
 {
-  if (p->alarminterval == 0)
+  if (p->alarminterval == 0 || p->alarmactive)
     return;
   p->alarmticks++;
   if (p->alarmticks < p->alarminterval)
@@ -113,6 +113,7 @@ alarmtick(struct proc *p)
   // then make the return to user space jump to the handler.
   // prepare_return copies epc into sepc for userret's sret.
   p->alarmticks = 0;
+  p->alarmactive = 1;
   p->alarmframe = *p->trapframe;
   p->trapframe->epc = p->alarmhandler;
 }
