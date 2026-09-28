@@ -110,3 +110,30 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// sigalarm(ticks, handler): call handler after every ticks
+// timer ticks of user CPU time. sigalarm(0, 0) turns it off.
+uint64
+sys_sigalarm(void)
+{
+  int interval;
+  uint64 handler;
+  struct proc *p = myproc();
+
+  argint(0, &interval);
+  argaddr(1, &handler);
+  if (interval < 0)
+    return -1;
+  p->alarminterval = interval;
+  p->alarmhandler = handler;
+  p->alarmticks = 0;
+  return 0;
+}
+
+// sigreturn(): return from an alarm handler to the code it
+// interrupted. nothing to return from yet.
+uint64
+sys_sigreturn(void)
+{
+  return -1;
+}

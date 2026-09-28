@@ -101,4 +101,9 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // sigalarm state, also private to the process.
+  int alarminterval;   // ticks between handler calls; 0 = off
+  int alarmticks;      // ticks counted since the last call
+  uint64 alarmhandler; // user address of the handler (0 is valid)
 };
