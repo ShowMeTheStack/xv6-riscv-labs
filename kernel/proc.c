@@ -167,6 +167,11 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->tstamp = 0;
+  p->utime = 0;
+  p->stime = 0;
+  p->cutime = 0;
+  p->cstime = 0;
   p->state = UNUSED;
 }
 

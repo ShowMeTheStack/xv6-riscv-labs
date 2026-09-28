@@ -101,4 +101,12 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // CPU time, in time-CSR ticks. Only this process writes them,
+  // so no lock; wait() reads a ZOMBIE child's under its p->lock.
+  uint64 tstamp; // time CSR value when the current stretch began
+  uint64 utime;  // time spent in user mode
+  uint64 stime;  // time spent in the kernel
+  uint64 cutime; // user time of children reaped by wait()
+  uint64 cstime; // kernel time of children reaped by wait()
 };
