@@ -496,9 +496,15 @@ sched(void)
   if (intr_get())
     panic("sched interruptible");
 
+  // stop this process's clock while it is not running.
+  p->stime += r_time() - p->tstamp;
+
   intena = mycpu()->intena;
   swtch(&p->context, &mycpu()->context);
   mycpu()->intena = intena;
+
+  // running again, perhaps on another hart: restart the clock.
+  p->tstamp = r_time();
 }
 
 // Give up the CPU for one scheduling round.
@@ -520,6 +526,10 @@ forkret(void)
   extern char userret[];
   static int first = 1;
   struct proc *p = myproc();
+
+  // a new process starts running here, not in sched():
+  // start its clock.
+  p->tstamp = r_time();
 
   // Still holding p->lock from scheduler.
   release(&p->lock);
