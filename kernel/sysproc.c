@@ -6,6 +6,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "vm.h"
+#include "cputime.h"
 
 uint64
 sys_exit(void)
@@ -109,4 +110,33 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// fill in a struct cputime at the user address in argument 0.
+// the counters are in time-CSR ticks; report microseconds.
+uint64
+sys_cputime(void)
+{
+  uint64 addr;
+  struct cputime ct;
+  struct proc *p = myproc();
+  uint64 tpus = TIMEBASE / 1000000; // ticks per microsecond
+
+  argaddr(0, &addr);
+
+  // the clock is running: include this system call so far. a timer
+  // interrupt here could yield, and sched() would change stime and
+  // tstamp between our reads; so read them with interrupts off.
+  push_off();
+  uint64 now = r_time();
+  ct.stime = (p->stime + (now - p->tstamp)) / tpus;
+  pop_off();
+
+  ct.real = now / tpus;
+  ct.utime = p->utime / tpus;
+  ct.cutime = p->cutime / tpus;
+  ct.cstime = p->cstime / tpus;
+  if (copyout(p->pagetable, p->sz, addr, (char *)&ct, sizeof(ct)) < 0)
+    return -1;
+  return 0;
 }
