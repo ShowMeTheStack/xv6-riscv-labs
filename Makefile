@@ -147,6 +147,7 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 	$U/_alarmtest\
+	$U/_alarmrate\
 	$U/_logstress\
 	$U/_forphan\
 	$U/_dorphan\
