@@ -48,6 +48,11 @@ usertrap(void)
 
   struct proc *p = myproc();
 
+  // the process ran in user mode since tstamp; charge it.
+  uint64 now = r_time();
+  p->utime += now - p->tstamp;
+  p->tstamp = now;
+
   // save user program counter.
   p->trapframe->epc = r_sepc();
 
@@ -129,6 +134,12 @@ prepare_return(void)
 
   // set S Exception Program Counter to the saved user pc.
   w_sepc(p->trapframe->epc);
+
+  // the time since tstamp was spent in the kernel; from now
+  // on, the process is (nearly) back in user mode.
+  uint64 now = r_time();
+  p->stime += now - p->tstamp;
+  p->tstamp = now;
 }
 
 // interrupts and exceptions from kernel code go here via kernelvec,
