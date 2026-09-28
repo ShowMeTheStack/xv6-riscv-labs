@@ -131,9 +131,15 @@ sys_sigalarm(void)
 }
 
 // sigreturn(): return from an alarm handler to the code it
-// interrupted. nothing to return from yet.
+// interrupted, with every register as it was.
 uint64
 sys_sigreturn(void)
 {
-  return -1;
+  struct proc *p = myproc();
+
+  // overwrites the epc that usertrap advanced past the ecall.
+  *p->trapframe = p->alarmframe;
+  // syscall() stores the return value in trapframe->a0:
+  // return the interrupted code's a0, not 0.
+  return p->trapframe->a0;
 }
