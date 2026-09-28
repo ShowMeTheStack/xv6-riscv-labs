@@ -137,6 +137,10 @@ kexec(char *path, char **argv)
   p->trapframe->sp = sp;         // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
 
+  // the handler's address meant something only in the old image.
+  p->alarminterval = 0;
+  p->alarmactive = 0;
+
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
 bad:

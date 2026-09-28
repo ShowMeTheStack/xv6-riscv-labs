@@ -167,6 +167,10 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->alarminterval = 0;
+  p->alarmticks = 0;
+  p->alarmhandler = 0;
+  p->alarmactive = 0;
   p->state = UNUSED;
 }
 
