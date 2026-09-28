@@ -98,6 +98,18 @@ sys_kill(void)
   return kkill(pid);
 }
 
+// setpgid(pid, pgid): move process pid (0: the caller)
+// into group pgid (0: a new group numbered pid).
+uint64
+sys_setpgid(void)
+{
+  int pid, pgid;
+
+  argint(0, &pid);
+  argint(1, &pgid);
+  return ksetpgid(pid, pgid);
+}
+
 // return how many clock tick interrupts have occurred
 // since start.
 uint64

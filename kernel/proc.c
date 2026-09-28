@@ -628,6 +628,38 @@ kkill(int pid)
   return -1;
 }
 
+// Put process pid, which must be the caller or one of its
+// children, into process group pgid.
+int
+ksetpgid(int pid, int pgid)
+{
+  struct proc *p;
+  struct proc *me = myproc();
+
+  if (pid == 0)
+    pid = me->pid;
+  if (pgid == 0)
+    pgid = pid;
+  if (pid < 0 || pgid < 0)
+    return -1;
+
+  acquire(&wait_lock); // protects p->parent
+  for (p = proc; p < &proc[NPROC]; p++) {
+    if (p != me && p->parent != me)
+      continue;
+    acquire(&p->lock);
+    if (p->pid == pid && p->state != ZOMBIE) {
+      p->pgid = pgid;
+      release(&p->lock);
+      release(&wait_lock);
+      return 0;
+    }
+    release(&p->lock);
+  }
+  release(&wait_lock);
+  return -1;
+}
+
 void
 setkilled(struct proc *p)
 {
