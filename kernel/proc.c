@@ -163,6 +163,7 @@ freeproc(struct proc *p)
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
+  p->pgid = 0;
   p->name[0] = 0;
   p->chan = 0;
   p->killed = 0;
@@ -258,7 +259,7 @@ growproc(int n)
 int
 kfork(void)
 {
-  int i, pid;
+  int i, pid, pgid;
   struct proc *np;
   struct proc *p = myproc();
 
@@ -297,7 +298,13 @@ kfork(void)
   np->parent = p;
   release(&wait_lock);
 
+  // the child joins the parent's process group.
+  acquire(&p->lock);
+  pgid = p->pgid;
+  release(&p->lock);
+
   acquire(&np->lock);
+  np->pgid = pgid;
   np->state = RUNNABLE;
   release(&np->lock);
 
