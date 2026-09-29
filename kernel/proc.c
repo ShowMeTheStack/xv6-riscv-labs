@@ -628,6 +628,32 @@ kkill(int pid)
   return -1;
 }
 
+// Kill every process in group pgid, the way kkill() kills
+// one, and return how many there were. Takes only p->lock,
+// one at a time, so an interrupt handler may call it.
+int
+killpgrp(int pgid)
+{
+  struct proc *p;
+  int n = 0;
+
+  if (pgid <= 0)
+    return 0; // group 0 is "no group": init and the shell
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->pgid == pgid) {
+      p->killed = 1;
+      if (p->state == SLEEPING) {
+        // Wake process from sleep().
+        p->state = RUNNABLE;
+      }
+      n++;
+    }
+    release(&p->lock);
+  }
+  return n;
+}
+
 // Put process pid, which must be the caller or one of its
 // children, into process group pgid.
 int

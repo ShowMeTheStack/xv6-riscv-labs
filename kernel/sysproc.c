@@ -110,6 +110,18 @@ sys_setpgid(void)
   return ksetpgid(pid, pgid);
 }
 
+// killpg(pgid): kill every process in group pgid.
+uint64
+sys_killpg(void)
+{
+  int pgid;
+
+  argint(0, &pgid);
+  if (killpgrp(pgid) == 0)
+    return -1;
+  return 0;
+}
+
 // return how many clock tick interrupts have occurred
 // since start.
 uint64
