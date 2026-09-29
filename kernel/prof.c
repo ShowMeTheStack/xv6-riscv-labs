@@ -9,6 +9,18 @@
 #include "prof.h"
 #include "defs.h"
 
+// count one sample: the interrupted program was at pc.
+void
+profsample(struct prof *pr, uint64 pc)
+{
+  pr->nsample++;
+  if (pc < pr->lo || pc >= pr->hi) {
+    pr->nout++;
+    return;
+  }
+  pr->bucket[(pc - pr->lo) >> pr->shift]++;
+}
+
 _Static_assert(sizeof(struct prof) == PGSIZE, "struct prof must fill a page");
 
 // profile(lo, hi, shift): start sampling the calling process

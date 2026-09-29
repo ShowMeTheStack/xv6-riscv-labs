@@ -82,8 +82,12 @@ usertrap(void)
     kexit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if (which_dev == 2)
+  if (which_dev == 2) {
+    // first record where the program was.
+    if (p->prof)
+      profsample(p->prof, p->trapframe->epc);
     yield();
+  }
 
   prepare_return();
 

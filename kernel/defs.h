@@ -5,6 +5,7 @@ struct file;
 struct inode;
 struct pipe;
 struct proc;
+struct prof;
 struct spinlock;
 struct sleeplock;
 struct stat;
@@ -176,6 +177,9 @@ void            plicinit(void);
 void            plicinithart(void);
 int             plic_claim(void);
 void            plic_complete(int);
+
+// prof.c
+void            profsample(struct prof*, uint64);
 
 // virtio_disk.c
 void            virtio_disk_init(void);
