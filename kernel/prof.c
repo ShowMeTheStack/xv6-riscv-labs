@@ -6,6 +6,7 @@
 #include "riscv.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "stat.h"
 #include "prof.h"
 #include "defs.h"
 
@@ -71,4 +72,19 @@ sys_profget(void)
     return -1;
   return copyout(p->pagetable, p->sz, buf, (char *)p->prof,
                  sizeof(struct prof));
+}
+
+// called by kexit: write the histogram to the file prof.out
+// in the process's current directory.
+void
+profdump(struct proc *p)
+{
+  struct inode *ip;
+
+  begin_op();
+  if ((ip = create("prof.out", T_FILE, 0, 0)) != 0) {
+    writei(ip, 0, (uint64)p->prof, 0, sizeof(struct prof));
+    iunlockput(ip);
+  }
+  end_op();
 }

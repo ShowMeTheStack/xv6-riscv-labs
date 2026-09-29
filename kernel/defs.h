@@ -131,6 +131,9 @@ int             strlen(const char*);
 int             strncmp(const char*, const char*, uint);
 char*           strncpy(char*, const char*, int);
 
+// sysfile.c
+struct inode*   create(char*, short, short, short);
+
 // syscall.c
 void            argint(int, int*);
 int             argstr(int, char*, int);
@@ -180,6 +183,7 @@ void            plic_complete(int);
 
 // prof.c
 void            profsample(struct prof*, uint64);
+void            profdump(struct proc*);
 
 // virtio_disk.c
 void            virtio_disk_init(void);

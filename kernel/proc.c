@@ -333,6 +333,11 @@ kexit(int status)
   if (p == initproc)
     panic("init exiting");
 
+  // save the profile, if any, while the process still
+  // has its current directory.
+  if (p->prof)
+    profdump(p);
+
   // Close all open files.
   for (int fd = 0; fd < NOFILE; fd++) {
     if (p->ofile[fd]) {
