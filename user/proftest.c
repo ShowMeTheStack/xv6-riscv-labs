@@ -146,7 +146,7 @@ exitdump(void)
   unlink("prof.out");
   if (fork() == 0) {
     profile(0, PGSIZE, 3);
-    hot(20);
+    hot(10);
     exit(0); // no profile(0, 0, 0): kexit writes prof.out
   }
   wait(&xs);

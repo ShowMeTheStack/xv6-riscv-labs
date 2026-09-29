@@ -152,9 +152,14 @@ UPROGS=\
 	$U/_dorphan\
 	$U/_sync\
 	$U/_proftest\
+	$U/_prof\
 
-fs.img: mkfs/mkfs README $(UPROGS)
-	mkfs/mkfs fs.img README $(UPROGS)
+# each program's symbol table, for prof. (forktest has none.)
+SYMS = $(filter-out $U/forktest.sym,$(patsubst $U/_%,$U/%.sym,$(UPROGS)))
+$U/%.sym: $U/_% ;
+
+fs.img: mkfs/mkfs README $(UPROGS) $(SYMS)
+	mkfs/mkfs fs.img README $(UPROGS) $(SYMS)
 
 -include kernel/*.d user/*.d
 
