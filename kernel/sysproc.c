@@ -122,6 +122,20 @@ sys_killpg(void)
   return 0;
 }
 
+// setfg(pgid): make group pgid the console's foreground
+// job, the one that Ctrl-C interrupts (0: none).
+uint64
+sys_setfg(void)
+{
+  int pgid;
+
+  argint(0, &pgid);
+  if (pgid < 0)
+    return -1;
+  consolesetfg(pgid);
+  return 0;
+}
+
 // return how many clock tick interrupts have occurred
 // since start.
 uint64

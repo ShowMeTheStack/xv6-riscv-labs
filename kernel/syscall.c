@@ -105,6 +105,7 @@ extern uint64 sys_close(void);
 extern uint64 sys_sync(void);
 extern uint64 sys_setpgid(void);
 extern uint64 sys_killpg(void);
+extern uint64 sys_setfg(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -134,6 +135,7 @@ static uint64 (*syscalls[])(void) = {
   [SYS_sync]    = sys_sync,
   [SYS_setpgid] = sys_setpgid,
   [SYS_killpg]  = sys_killpg,
+  [SYS_setfg]   = sys_setfg,
   // clang-format on
 };
 

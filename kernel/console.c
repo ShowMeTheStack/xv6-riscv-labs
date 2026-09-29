@@ -53,6 +53,8 @@ struct {
   uint r; // Read index
   uint w; // Write index
   uint e; // Edit index
+
+  int fg; // foreground process group, for ^C (0: none)
 } cons;
 
 //
@@ -186,6 +188,15 @@ consoleintr(int c)
     break;
   }
 
+  release(&cons.lock);
+}
+
+// make group pgid the foreground job (0: none).
+void
+consolesetfg(int pgid)
+{
+  acquire(&cons.lock);
+  cons.fg = pgid;
   release(&cons.lock);
 }
 

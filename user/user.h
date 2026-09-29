@@ -27,6 +27,7 @@ int uptime(void);
 int sync(void);
 int setpgid(int, int);
 int killpg(int);
+int setfg(int);
 
 // ulib.c
 int stat(const char *, struct stat *);

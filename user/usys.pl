@@ -45,3 +45,4 @@ entry("uptime");
 entry("sync");
 entry("setpgid");
 entry("killpg");
+entry("setfg");

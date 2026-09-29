@@ -23,3 +23,4 @@
 #define SYS_sync   22
 #define SYS_setpgid 23
 #define SYS_killpg 24
+#define SYS_setfg  25
