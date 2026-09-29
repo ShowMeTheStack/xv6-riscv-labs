@@ -124,8 +124,10 @@ runcmd(struct cmd *cmd)
 
   case BACK:
     bcmd = (struct backcmd *)cmd;
-    if (fork1() == 0)
+    if (fork1() == 0) {
+      setpgid(0, 0); // leave the foreground job: ^C spares it
       runcmd(bcmd->cmd);
+    }
     break;
   }
   exit(0);
@@ -146,7 +148,7 @@ int
 main(void)
 {
   static char buf[100];
-  int fd;
+  int fd, pid;
 
   // Ensure that three file descriptors are open.
   while ((fd = open("console", O_RDWR)) >= 0) {
@@ -169,9 +171,15 @@ main(void)
       if (chdir(cmd + 3) < 0)
         fprintf(2, "cannot cd %s\n", cmd + 3);
     } else {
-      if (fork1() == 0)
+      pid = fork1();
+      if (pid == 0) {
+        setpgid(0, 0); // the job gets a group of its own
         runcmd(parsecmd(cmd));
+      }
+      setpgid(pid, pid); // here too: whichever runs first
+      setfg(pid);        // ^C now interrupts this job
       wait(0);
+      setfg(0); // back at the prompt: no foreground job
     }
   }
   exit(0);
