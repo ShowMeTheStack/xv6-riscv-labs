@@ -7,6 +7,7 @@
 //   control-u -- kill line
 //   control-d -- end of file
 //   control-p -- print process list
+//   control-c -- kill the foreground job
 //
 
 #include <stdarg.h>
@@ -153,6 +154,21 @@ consoleintr(int c)
   switch (c) {
   case C('P'): // Print process list.
     procdump();
+    break;
+  case C('C'): // Interrupt the foreground job.
+    cons.e = cons.w; // drop the line being typed
+    consputc('^');
+    consputc('C');
+    consputc('\n');
+    if (killpgrp(cons.fg) == 0 && cons.e - cons.r < INPUT_BUF_SIZE) {
+      // no job to interrupt: hand the reader (the shell)
+      // an empty line, so that it prompts again.
+      cons.buf[cons.e++ % INPUT_BUF_SIZE] = '\n';
+      cons.w = cons.e;
+    }
+    // a killed reader may be between sleep_prepare() and
+    // sleep() in consoleread(); this clears its chan.
+    wakeup(&cons.r);
     break;
   case C('U'): // Kill line.
     while (cons.e != cons.w &&
