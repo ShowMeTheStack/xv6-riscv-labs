@@ -2,7 +2,10 @@
 // where its samples landed. the report goes to the standard
 // error, so the command's own output can be redirected.
 //
-//   prof command args...
+//   prof command args...         the command's user pcs
+//   prof -k command args...      the kernel's pcs, on all harts,
+//                                while the command runs
+//   prof -k 0xLO 0xHI command... only kernel pcs in [LO, HI)
 
 #include "kernel/types.h"
 #include "kernel/stat.h"
@@ -11,7 +14,7 @@
 #include "kernel/prof.h"
 #include "user/user.h"
 
-#define NSYM 256
+#define NSYM 512
 #define NTOP 10
 
 static struct prof pr;
@@ -55,6 +58,19 @@ hexdigit(char c)
   if (c >= 'a' && c <= 'f')
     return c - 'a' + 10;
   return -1;
+}
+
+// parse a hex number such as 0x80000b4a.
+uint64
+hex(char *s)
+{
+  uint64 n = 0;
+
+  if (s[0] == '0' && s[1] == 'x')
+    s += 2;
+  while (hexdigit(*s) >= 0)
+    n = n * 16 + hexdigit(*s++);
+  return n;
 }
 
 // read /NAME.sym, written by the Makefile: lines of
@@ -168,18 +184,45 @@ report(char *cmd)
   }
 }
 
+// where is the symbol called name? 0 if unknown.
+uint64
+symbol(char *name)
+{
+  for (int i = 0; i < nsym; i++)
+    if (strcmp(symname[i], name) == 0)
+      return symaddr[i];
+  return 0;
+}
+
 int
 main(int argc, char *argv[])
 {
   uint64 lo, hi;
-  int shift, fd, t0;
+  int shift, fd, kernel = 0, t0;
+  char **cmd = argv + 1;
 
-  if (argc < 2) {
-    fprintf(2, "usage: prof command args...\n");
+  if (argc >= 3 && strcmp(argv[1], "-k") == 0) {
+    // profile the kernel, using kernel.sym, a copy of the
+    // kernel's symbol table that the Makefile puts in fs.img.
+    kernel = 1;
+    cmd = argv + 2;
+    loadsyms("kernel");
+    lo = symbol("_entry");
+    hi = symbol("etext");
+    if (argc >= 5 && cmd[0][0] == '0' && cmd[0][1] == 'x') {
+      lo = hex(cmd[0]);
+      hi = hex(cmd[1]);
+      cmd += 2;
+    }
+    if (lo == 0 || hi <= lo) {
+      fprintf(2, "prof: no kernel range\n");
+      exit(1);
+    }
+  } else if (argc < 2) {
+    fprintf(2, "usage: prof [-k [0xLO 0xHI]] command args...\n");
     exit(1);
-  }
-  if (textrange(argv[1], &lo, &hi) < 0) {
-    fprintf(2, "prof: cannot read %s\n", argv[1]);
+  } else if (textrange(cmd[0], &lo, &hi) < 0) {
+    fprintf(2, "prof: cannot read %s\n", cmd[0]);
     exit(1);
   }
 
@@ -195,8 +238,8 @@ main(int argc, char *argv[])
       fprintf(2, "prof: profile failed\n");
       exit(1);
     }
-    exec(argv[1], argv + 1);
-    fprintf(2, "prof: exec %s failed\n", argv[1]);
+    exec(cmd[0], cmd);
+    fprintf(2, "prof: exec %s failed\n", cmd[0]);
     exit(1);
   }
   wait(0);
@@ -208,7 +251,8 @@ main(int argc, char *argv[])
     exit(1);
   }
   close(fd);
-  loadsyms(argv[1]);
-  report(argv[1]);
+  if (!kernel)
+    loadsyms(cmd[0]);
+  report(kernel ? "kernel" : cmd[0]);
   exit(0);
 }

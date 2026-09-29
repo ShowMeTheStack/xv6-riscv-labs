@@ -182,7 +182,9 @@ int             plic_claim(void);
 void            plic_complete(int);
 
 // prof.c
+void            profinit(void);
 void            profsample(struct prof*, uint64);
+void            kprofsample(uint64);
 void            profdump(struct proc*);
 
 // virtio_disk.c

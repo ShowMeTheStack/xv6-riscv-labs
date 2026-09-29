@@ -158,8 +158,12 @@ UPROGS=\
 SYMS = $(filter-out $U/forktest.sym,$(patsubst $U/_%,$U/%.sym,$(UPROGS)))
 $U/%.sym: $U/_% ;
 
-fs.img: mkfs/mkfs README $(UPROGS) $(SYMS)
-	mkfs/mkfs fs.img README $(UPROGS) $(SYMS)
+# and the kernel's, for prof -k.
+$U/kernel.sym: $K/kernel
+	cp $K/kernel.sym $U/kernel.sym
+
+fs.img: mkfs/mkfs README $(UPROGS) $(SYMS) $U/kernel.sym
+	mkfs/mkfs fs.img README $(UPROGS) $(SYMS) $U/kernel.sym
 
 -include kernel/*.d user/*.d
 

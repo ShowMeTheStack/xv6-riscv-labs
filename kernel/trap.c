@@ -4,6 +4,7 @@
 #include "riscv.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "prof.h"
 #include "defs.h"
 
 struct spinlock tickslock;
@@ -83,8 +84,9 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if (which_dev == 2) {
-    // first record where the program was.
-    if (p->prof)
+    // first record where the program was. (a kernel
+    // profile is fed by kerneltrap instead.)
+    if (p->prof && p->prof->lo < KERNBASE)
       profsample(p->prof, p->trapframe->epc);
     yield();
   }
@@ -156,6 +158,10 @@ kerneltrap()
            r_stval());
     panic("kerneltrap");
   }
+
+  // record where the kernel was, for a kernel profile.
+  if (which_dev == 2)
+    kprofsample(sepc);
 
   // give up the CPU if this is a timer interrupt.
   if (which_dev == 2 && myproc() != 0)

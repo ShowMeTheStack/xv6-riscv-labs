@@ -6,6 +6,7 @@
 #include "user/user.h"
 
 #define PGSIZE 4096
+#define KERNBASE 0x80000000L
 
 static struct prof pr;
 static int failed;
@@ -146,7 +147,7 @@ exitdump(void)
   unlink("prof.out");
   if (fork() == 0) {
     profile(0, PGSIZE, 3);
-    hot(10);
+    hot(20);
     exit(0); // no profile(0, 0, 0): kexit writes prof.out
   }
   wait(&xs);
@@ -181,6 +182,30 @@ leaks(void)
   check("no leaks", free0 == free1);
 }
 
+void
+kernelmode(void)
+{
+  int xs = 1;
+  uint64 lo = KERNBASE, hi = KERNBASE + (PROFBUCKETS << 6);
+
+  if (profile(lo, hi, 6) < 0) {
+    check("a kernel profile", 0);
+    return;
+  }
+  if (fork() == 0)
+    exit(profile(lo, hi, 6) == 0 ? 1 : 0);
+  wait(&xs);
+  check("only one kernel profile at a time", xs == 0);
+
+  pause(10); // the other harts are idle in the kernel
+  profget(&pr);
+  profile(0, 0, 0);
+  printf("proftest: kernel: %d samples, %d outside [0x%lx, 0x%lx)\n",
+         pr.nsample, pr.nout, pr.lo, pr.hi);
+  check("kernel samples, none outside the profiled range",
+        pr.nsample >= 10 && pr.nout == 0);
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -196,6 +221,7 @@ main(int argc, char *argv[])
   hotloop();
   forkexec();
   exitdump();
+  kernelmode();
   leaks();
   if (failed == 0)
     printf("proftest: ALL OK\n");
