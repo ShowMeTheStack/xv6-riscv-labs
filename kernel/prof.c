@@ -58,9 +58,17 @@ sys_profile(void)
   return 0;
 }
 
-// profget(buf): copy the calling process's histogram to buf.
+// profget(buf): copy the calling process's histogram,
+// a struct prof, to buf.
 uint64
 sys_profget(void)
 {
-  return -1;
+  uint64 buf;
+  struct proc *p = myproc();
+
+  argaddr(0, &buf);
+  if (p->prof == 0)
+    return -1;
+  return copyout(p->pagetable, p->sz, buf, (char *)p->prof,
+                 sizeof(struct prof));
 }
