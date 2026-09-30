@@ -14,6 +14,8 @@ struct proc proc[NPROC];
 // thread, so NPROC is always enough.
 struct vm vms[NPROC];
 
+_Static_assert(sizeof(struct trapframe) <= TFSIZE, "TFSIZE too small");
+
 struct proc *initproc;
 
 int nextpid = 1;
@@ -109,22 +111,29 @@ allocpid()
   return pid;
 }
 
-// Find an unused address space and give it one user.
+// Find an unused address space and give it one user, with
+// a new trapframe page whose slot 0 that user takes.
 static struct vm *
 allocvm(void)
 {
   struct vm *vm;
+  char *tf;
 
+  if ((tf = kalloc()) == 0)
+    return 0;
   for (vm = vms; vm < &vms[NPROC]; vm++) {
     acquire(&vm->lock);
     if (vm->ref == 0) {
       vm->ref = 1;
       vm->sz = 0;
+      vm->tfpage = tf;
+      vm->slots = 1;
       release(&vm->lock);
       return vm;
     }
     release(&vm->lock);
   }
+  kfree(tf);
   return 0;
 }
 
@@ -135,14 +144,20 @@ dropvm(struct proc *p)
 {
   struct vm *vm = p->vm;
   uint64 sz;
+  char *tf;
   int ref;
 
   acquire(&vm->lock);
+  vm->slots &= ~(1 << p->slot);
   ref = --vm->ref;
   sz = vm->sz; // read before another allocvm() can reuse vm
+  tf = vm->tfpage;
   release(&vm->lock);
-  if (ref == 0 && p->pagetable)
-    proc_freepagetable(p->pagetable, sz);
+  if (ref == 0) {
+    if (p->pagetable)
+      proc_freepagetable(p->pagetable, sz);
+    kfree(tf);
+  }
 }
 
 // Look in the process table for an UNUSED proc.
@@ -168,19 +183,15 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
-  // Allocate a trapframe page.
-  if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
-    freeproc(p);
-    release(&p->lock);
-    return 0;
-  }
-
-  // A new address space with an empty user page table.
+  // A new address space with a trapframe page, of which this
+  // first thread uses slot 0, and an empty user page table.
   if ((p->vm = allocvm()) == 0) {
     freeproc(p);
     release(&p->lock);
     return 0;
   }
+  p->slot = 0;
+  p->trapframe = (struct trapframe *)p->vm->tfpage;
   p->pagetable = proc_pagetable(p);
   if (p->pagetable == 0) {
     freeproc(p);
@@ -203,9 +214,7 @@ found:
 static void
 freeproc(struct proc *p)
 {
-  if (p->trapframe)
-    kfree((void *)p->trapframe);
-  p->trapframe = 0;
+  p->trapframe = 0; // the vm frees the trapframe page
   if (p->vm)
     dropvm(p);
   p->vm = 0;
@@ -242,7 +251,7 @@ proc_pagetable(struct proc *p)
 
   // map the trapframe page just below the trampoline page, for
   // trampoline.S.
-  if (mappages(pagetable, TRAPFRAME, PGSIZE, (uint64)(p->trapframe),
+  if (mappages(pagetable, TRAPFRAME, PGSIZE, (uint64)(p->vm->tfpage),
                PTE_R | PTE_W) < 0) {
     uvmunmap(pagetable, TRAMPOLINE, 1, 0);
     uvmfree(pagetable, 0);

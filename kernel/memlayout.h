@@ -61,3 +61,8 @@
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
 #define TRAPFRAME (TRAMPOLINE - PGSIZE)
+
+// the trapframe page holds one trapframe per thread:
+// thread slot i's is at TRAPFRAME + i*TFSIZE.
+#define TFSIZE  512
+#define NTHREAD (PGSIZE / TFSIZE)

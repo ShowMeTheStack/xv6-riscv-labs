@@ -120,7 +120,7 @@ prepare_return(void)
 
   // where uservec and userret find the trapframe, as a
   // user virtual address.
-  w_sscratch(TRAPFRAME);
+  w_sscratch(TRAPFRAME + p->slot * TFSIZE);
 
   // set up the registers that trampoline.S's sret will use
   // to get to user space.
