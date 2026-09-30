@@ -10,6 +10,10 @@ struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
 
+// one address space per process; a process has at least one
+// thread, so NPROC is always enough.
+struct vm vms[NPROC];
+
 struct proc *initproc;
 
 int nextpid = 1;
@@ -48,6 +52,7 @@ void
 procinit(void)
 {
   struct proc *p;
+  struct vm *vm;
 
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
@@ -56,6 +61,8 @@ procinit(void)
     p->state = UNUSED;
     p->kstack = KSTACK((int)(p - proc));
   }
+  for (vm = vms; vm < &vms[NPROC]; vm++)
+    initlock(&vm->lock, "vm");
 }
 
 // Must be called with interrupts disabled,
@@ -102,6 +109,42 @@ allocpid()
   return pid;
 }
 
+// Find an unused address space and give it one user.
+static struct vm *
+allocvm(void)
+{
+  struct vm *vm;
+
+  for (vm = vms; vm < &vms[NPROC]; vm++) {
+    acquire(&vm->lock);
+    if (vm->ref == 0) {
+      vm->ref = 1;
+      vm->sz = 0;
+      release(&vm->lock);
+      return vm;
+    }
+    release(&vm->lock);
+  }
+  return 0;
+}
+
+// Drop p's reference to its address space. The last
+// thread out frees the page table and the user memory.
+static void
+dropvm(struct proc *p)
+{
+  struct vm *vm = p->vm;
+  uint64 sz;
+  int ref;
+
+  acquire(&vm->lock);
+  ref = --vm->ref;
+  sz = vm->sz; // read before another allocvm() can reuse vm
+  release(&vm->lock);
+  if (ref == 0 && p->pagetable)
+    proc_freepagetable(p->pagetable, sz);
+}
+
 // Look in the process table for an UNUSED proc.
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
@@ -132,7 +175,12 @@ found:
     return 0;
   }
 
-  // An empty user page table.
+  // A new address space with an empty user page table.
+  if ((p->vm = allocvm()) == 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
   p->pagetable = proc_pagetable(p);
   if (p->pagetable == 0) {
     freeproc(p);
@@ -158,10 +206,10 @@ freeproc(struct proc *p)
   if (p->trapframe)
     kfree((void *)p->trapframe);
   p->trapframe = 0;
-  if (p->pagetable)
-    proc_freepagetable(p->pagetable, p->sz);
+  if (p->vm)
+    dropvm(p);
+  p->vm = 0;
   p->pagetable = 0;
-  p->sz = 0;
   p->pid = 0;
   p->name[0] = 0;
   p->chan = 0;
@@ -238,7 +286,7 @@ growproc(int n)
   uint64 sz;
   struct proc *p = myproc();
 
-  sz = p->sz;
+  sz = p->vm->sz;
   if (n > 0) {
     if (sz + n > TRAPFRAME) {
       return -1;
@@ -249,7 +297,7 @@ growproc(int n)
   } else if (n < 0) {
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
-  p->sz = sz;
+  p->vm->sz = sz;
   return 0;
 }
 
@@ -268,12 +316,12 @@ kfork(void)
   }
 
   // Copy user memory from parent to child.
-  if (uvmcopy(p->pagetable, np->pagetable, p->sz) < 0) {
+  if (uvmcopy(p->pagetable, np->pagetable, p->vm->sz) < 0) {
     freeproc(np);
     release(&np->lock);
     return -1;
   }
-  np->sz = p->sz;
+  np->vm->sz = p->vm->sz;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -388,7 +436,7 @@ kwait(uint64 addr)
           // Found one.
           pid = pp->pid;
           if (addr != 0 &&
-              copyout(p->pagetable, p->sz, addr, (char *)&pp->xstate,
+              copyout(p->pagetable, p->vm->sz, addr, (char *)&pp->xstate,
                       sizeof(pp->xstate)) < 0) {
             release(&pp->lock);
             release(&wait_lock);
@@ -648,7 +696,7 @@ either_copyout(int user_dst, uint64 dst, void *src, uint64 len)
 {
   struct proc *p = myproc();
   if (user_dst) {
-    return copyout(p->pagetable, p->sz, dst, src, len);
+    return copyout(p->pagetable, p->vm->sz, dst, src, len);
   } else {
     memmove((char *)dst, src, len);
     return 0;
@@ -663,7 +711,7 @@ either_copyin(void *dst, int user_src, uint64 src, uint64 len)
 {
   struct proc *p = myproc();
   if (user_src) {
-    return copyin(p->pagetable, p->sz, dst, src, len);
+    return copyin(p->pagetable, p->vm->sz, dst, src, len);
   } else {
     memmove(dst, (char *)src, len);
     return 0;

@@ -81,7 +81,7 @@ kexec(char *path, char **argv)
   ip = 0;
 
   p = myproc();
-  uint64 oldsz = p->sz;
+  uint64 oldsz = p->vm->sz;
 
   // Allocate some pages at the next page boundary.
   // Make the first inaccessible as a stack guard.
@@ -132,7 +132,7 @@ kexec(char *path, char **argv)
   // Commit to the user image.
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;
-  p->sz = sz;
+  p->vm->sz = sz;
   p->trapframe->epc = elf.entry; // initial program counter = ulib.c:start()
   p->trapframe->sp = sp;         // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);

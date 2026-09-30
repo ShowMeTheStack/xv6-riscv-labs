@@ -78,6 +78,14 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+// A user address space. Every thread of a process points to
+// the same one; the last thread to go frees the page table.
+struct vm {
+  struct spinlock lock;
+  int ref;   // threads using this address space
+  uint64 sz; // size of user memory (bytes)
+};
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -94,8 +102,8 @@ struct proc {
 
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
-  uint64 sz;                   // Size of process memory (bytes)
-  pagetable_t pagetable;       // User page table
+  struct vm *vm;               // Address space, shared by threads
+  pagetable_t pagetable;       // User page table (the vm's)
   struct trapframe *trapframe; // data page for trampoline.S
   struct context context;      // swtch() here to run process
   struct file *ofile[NOFILE];  // Open files

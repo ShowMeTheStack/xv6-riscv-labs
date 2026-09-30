@@ -45,7 +45,7 @@ sys_sbrk(void)
 
   argint(0, &n);
   argint(1, &t);
-  addr = myproc()->sz;
+  addr = myproc()->vm->sz;
 
   if (t == SBRK_EAGER || n < 0) {
     if (growproc(n) < 0) {
@@ -59,7 +59,7 @@ sys_sbrk(void)
       return -1;
     if (addr + n > TRAPFRAME)
       return -1;
-    myproc()->sz += n;
+    myproc()->vm->sz += n;
   }
   return addr;
 }
