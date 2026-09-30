@@ -26,6 +26,27 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 
+// Stride scheduling's virtual time: the largest pass with which
+// any process has been picked to run. A process that was not
+// competing for the CPU (new, or asleep) starts again from here.
+// Taken after p->lock, and nothing is taken while holding it.
+struct {
+  struct spinlock lock;
+  uint64 now;
+} vtime;
+
+// p is becoming RUNNABLE after not competing for the CPU. Don't
+// let it start behind virtual time, or it would run without a
+// break until it had caught up. Caller must hold p->lock.
+static void
+catchup(struct proc *p)
+{
+  acquire(&vtime.lock);
+  if (p->pass < vtime.now)
+    p->pass = vtime.now;
+  release(&vtime.lock);
+}
+
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
 // guard page.
@@ -51,6 +72,7 @@ procinit(void)
 
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
+  initlock(&vtime.lock, "vtime");
   for (p = proc; p < &proc[NPROC]; p++) {
     initlock(&p->lock, "proc");
     p->state = UNUSED;
@@ -126,6 +148,7 @@ found:
   p->state = USED;
   p->tickets = DEFTICKETS;
   p->cputime = 0;
+  p->pass = 0;
 
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
@@ -303,7 +326,7 @@ kfork(void)
   // The child inherits the parent's tickets. Only p itself writes
   // p->tickets, so reading it here without p->lock is safe.
   np->tickets = p->tickets;
-  np->pass = p->pass;
+  catchup(np);
   np->state = RUNNABLE;
   release(&np->lock);
 
@@ -472,7 +495,12 @@ scheduler(void)
     // so check again. If it is gone, scan again.
     acquire(&best->lock);
     if (best->state == RUNNABLE) {
-      // Charge it one stride for the time slice it is about to get.
+      // Advance virtual time to best's pass, then charge best
+      // one stride for the time slice it is about to get.
+      acquire(&vtime.lock);
+      if (best->pass > vtime.now)
+        vtime.now = best->pass;
+      release(&vtime.lock);
       best->pass += STRIDE1 / best->tickets;
 
       // Switch to chosen process.  It is the process's job
@@ -613,6 +641,7 @@ wakeup(void *chan)
       // If this waiting process has gotten so far as to actually
       // go to sleep, also set it back to RUNNING.
       if (p->state == SLEEPING) {
+        catchup(p);
         p->state = RUNNABLE;
       }
     }
@@ -637,6 +666,7 @@ kkill(int pid)
       p->killed = 1;
       if (p->state == SLEEPING) {
         // Wake process from sleep().
+        catchup(p);
         p->state = RUNNABLE;
       }
       release(&p->lock);
