@@ -754,6 +754,8 @@ procdump(void)
     else
       state = "???";
     printk("%d %s %s", p->pid, state, p->name);
+    printk(" tickets %d pass %lu", p->tickets, p->pass);
     printk("\n");
   }
+  printk("vtime %lu\n", vtime.now);
 }
