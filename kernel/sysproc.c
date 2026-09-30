@@ -110,3 +110,35 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// Set this process's share of the CPU to n tickets (1..MAXTICKETS).
+// Return the old number of tickets, or -1 if n is out of range.
+uint64
+sys_settickets(void)
+{
+  int n, old;
+  struct proc *p = myproc();
+
+  argint(0, &n);
+  if (n < 1 || n > MAXTICKETS)
+    return -1;
+  acquire(&p->lock);
+  old = p->tickets;
+  p->tickets = n;
+  release(&p->lock);
+  return old;
+}
+
+// Return the CPU time this process has used, in time CSR units
+// (10,000,000 per second on QEMU), including the current slice.
+uint64
+sys_cputime(void)
+{
+  uint64 t;
+  struct proc *p = myproc();
+
+  acquire(&p->lock);
+  t = p->cputime + (r_time() - p->runstart);
+  release(&p->lock);
+  return t;
+}

@@ -124,6 +124,8 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
+  p->tickets = DEFTICKETS;
+  p->cputime = 0;
 
   // Allocate a trapframe page.
   if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
@@ -298,6 +300,9 @@ kfork(void)
   release(&wait_lock);
 
   acquire(&np->lock);
+  // The child inherits the parent's tickets. Only p itself writes
+  // p->tickets, so reading it here without p->lock is safe.
+  np->tickets = p->tickets;
   np->state = RUNNABLE;
   release(&np->lock);
 
@@ -450,7 +455,9 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        p->runstart = r_time();
         swtch(&c->context, &p->context);
+        p->cputime += r_time() - p->runstart;
 
         // Don't re-enable interrupts on release.
         mycpu()->intena = 0;
