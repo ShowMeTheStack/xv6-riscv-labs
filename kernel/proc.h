@@ -91,6 +91,7 @@ struct proc {
   int tickets;          // CPU share; after creation, written only by the process itself
   uint64 cputime;       // time run so far, in time CSR units (scheduler)
   uint64 runstart;      // time CSR when the scheduler last switched to it
+  uint64 pass;          // stride scheduling: CPU used, in virtual time
 
   // wait_lock must be held when using this:
   struct proc *parent; // Parent process

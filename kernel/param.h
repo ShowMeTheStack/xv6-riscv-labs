@@ -14,3 +14,4 @@
 #define USERSTACK   1                 // user stack pages
 #define DEFTICKETS  10                // tickets of a process that never set any
 #define MAXTICKETS  100               // most tickets settickets() allows
+#define STRIDE1     (1 << 20)         // a process's stride is STRIDE1 / tickets

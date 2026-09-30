@@ -303,6 +303,7 @@ kfork(void)
   // The child inherits the parent's tickets. Only p itself writes
   // p->tickets, so reading it here without p->lock is safe.
   np->tickets = p->tickets;
+  np->pass = p->pass;
   np->state = RUNNABLE;
   release(&np->lock);
 
@@ -426,14 +427,16 @@ kwait(uint64 addr)
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
-//  - choose a process to run.
+//  - choose a process to run: the RUNNABLE one with the
+//    smallest pass (stride scheduling).
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
 void
 scheduler(void)
 {
-  struct proc *p;
+  struct proc *p, *best;
+  uint64 bestpass;
   struct cpu *c = mycpu();
 
   c->proc = 0;
@@ -446,33 +449,49 @@ scheduler(void)
     intr_on();
     intr_off();
 
-    int found = 0;
+    // Find the RUNNABLE process with the smallest pass. Look at
+    // one process at a time, under its own lock, so that this
+    // scan never holds two p->locks.
+    best = 0;
+    bestpass = 0;
     for (p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      if (p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        p->runstart = r_time();
-        swtch(&c->context, &p->context);
-        p->cputime += r_time() - p->runstart;
-
-        // Don't re-enable interrupts on release.
-        mycpu()->intena = 0;
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+      if (p->state == RUNNABLE && (best == 0 || p->pass < bestpass)) {
+        best = p;
+        bestpass = p->pass;
       }
       release(&p->lock);
     }
-    if (found == 0) {
+    if (best == 0) {
       // nothing to run; stop running on this core until an interrupt.
       asm volatile("wfi");
+      continue;
     }
+
+    // Another CPU may have taken best since we looked at it,
+    // so check again. If it is gone, scan again.
+    acquire(&best->lock);
+    if (best->state == RUNNABLE) {
+      // Charge it one stride for the time slice it is about to get.
+      best->pass += STRIDE1 / best->tickets;
+
+      // Switch to chosen process.  It is the process's job
+      // to release its lock and then reacquire it
+      // before jumping back to us.
+      best->state = RUNNING;
+      c->proc = best;
+      best->runstart = r_time();
+      swtch(&c->context, &best->context);
+      best->cputime += r_time() - best->runstart;
+
+      // Don't re-enable interrupts on release.
+      mycpu()->intena = 0;
+
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;
+    }
+    release(&best->lock);
   }
 }
 
