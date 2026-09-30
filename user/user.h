@@ -26,6 +26,7 @@ int pause(int);
 int uptime(void);
 int sync(void);
 int clone(void (*)(void *), void *, void *);
+int join(int *);
 
 // ulib.c
 int stat(const char *, struct stat *);

@@ -45,7 +45,16 @@ sys_wait(void)
 {
   uint64 p;
   argaddr(0, &p);
-  return kwait(p);
+  return kwait(p, 0);
+}
+
+// join(&status): wait for a thread this thread created.
+uint64
+sys_join(void)
+{
+  uint64 p;
+  argaddr(0, &p);
+  return kwait(p, 1);
 }
 
 uint64

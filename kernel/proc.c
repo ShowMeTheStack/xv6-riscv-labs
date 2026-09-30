@@ -501,8 +501,9 @@ kexit(int status)
 
 // Wait for a child process to exit and return its pid.
 // Return -1 if this process has no children.
+// With threads set, wait for a child thread instead (join).
 int
-kwait(uint64 addr)
+kwait(uint64 addr, int threads)
 {
   struct proc *pp;
   int havekids, pid;
@@ -517,6 +518,13 @@ kwait(uint64 addr)
       if (pp->parent == p) {
         // make sure the child isn't still in exit() or swtch().
         acquire(&pp->lock);
+
+        // a child thread shares our address space; a child
+        // process has its own. each kind has its own call.
+        if ((pp->vm == p->vm) != threads) {
+          release(&pp->lock);
+          continue;
+        }
 
         havekids = 1;
         if (pp->state == ZOMBIE) {

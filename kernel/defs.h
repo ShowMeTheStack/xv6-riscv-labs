@@ -98,7 +98,7 @@ void            sched(void);
 void            sleep_prepare(void*);
 void            sleep(void);
 void            userinit(void);
-int             kwait(uint64);
+int             kwait(uint64, int);
 void            wakeup(void*);
 void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
