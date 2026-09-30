@@ -191,6 +191,13 @@ r_stvec()
   return x;
 }
 
+// Supervisor Scratch: user traps find their trapframe here
+static inline void
+w_sscratch(uint64 x)
+{
+  asm volatile("csrw sscratch, %0" : : "r"(x));
+}
+
 // Supervisor Timer Comparison Register
 static inline uint64
 r_stimecmp()

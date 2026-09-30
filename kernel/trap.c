@@ -118,6 +118,10 @@ prepare_return(void)
   p->trapframe->kernel_trap = (uint64)usertrap;
   p->trapframe->kernel_hartid = r_tp(); // hartid for cpuid()
 
+  // where uservec and userret find the trapframe, as a
+  // user virtual address.
+  w_sscratch(TRAPFRAME);
+
   // set up the registers that trampoline.S's sret will use
   // to get to user space.
 
