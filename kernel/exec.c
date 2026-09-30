@@ -35,6 +35,15 @@ kexec(char *path, char **argv)
   struct proghdr ph;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
+  int shared;
+
+  // other threads run in this address space, and exec would
+  // free it under them. refuse.
+  acquire(&p->vm->lock);
+  shared = p->vm->ref > 1;
+  release(&p->vm->lock);
+  if (shared)
+    return -1;
 
   begin_op();
 

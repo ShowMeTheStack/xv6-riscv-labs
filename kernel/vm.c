@@ -241,6 +241,49 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
   return newsz;
 }
 
+// Like uvmalloc(), for a page table that other threads use:
+// on failure it must not unmap anything, since another hart
+// may still hold a removed page in its TLB. So first make the
+// page-table pages, then take every physical page, and map
+// only when all are in hand. Returns newsz, or 0 on failure.
+uint64
+uvmgrow(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
+{
+  char *mem, *list = 0;
+  uint64 a;
+
+  if (newsz < oldsz)
+    return oldsz;
+
+  oldsz = PGROUNDUP(oldsz);
+  // page-table pages made here stay if a later step fails;
+  // they map nothing and are freed with the page table.
+  for (a = oldsz; a < newsz; a += PGSIZE)
+    if (walk(pagetable, a, 1) == 0)
+      return 0;
+  // the pages, chained through their first word.
+  for (a = oldsz; a < newsz; a += PGSIZE) {
+    if ((mem = kalloc()) == 0) {
+      while ((mem = list) != 0) {
+        list = *(char **)mem;
+        kfree(mem);
+      }
+      return 0;
+    }
+    *(char **)mem = list;
+    list = mem;
+  }
+  // cannot fail now: every PTE has a page-table page.
+  for (a = oldsz; a < newsz; a += PGSIZE) {
+    mem = list;
+    list = *(char **)mem;
+    memset(mem, 0, PGSIZE);
+    if (mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_R | PTE_U | xperm) != 0)
+      panic("uvmgrow");
+  }
+  return newsz;
+}
+
 // Deallocate user pages to bring the process size from oldsz to
 // newsz.  oldsz and newsz need not be page-aligned, nor does newsz
 // need to be less than oldsz.  oldsz can be larger than the actual
@@ -453,27 +496,41 @@ copyinstr(pagetable_t pagetable, uint64 psz, char *dst, uint64 srcva,
 
 // allocate and map user memory if process is referencing a page
 // that was lazily allocated in sys_sbrk().
-// returns 0 if va is invalid or already mapped, or if
+// returns 0 if va is invalid, already mapped without this access, or if
 // out of physical memory, and physical address if successful.
 uint64
 vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
 {
+  struct vm *vm = myproc()->vm;
   uint64 mem;
+  pte_t *pte;
 
   if (va >= psz)
     return 0;
   va = PGROUNDDOWN(va);
+
+  // other threads may fault on the same page, or change the
+  // page table, at the same time.
+  acquire(&vm->lock);
   if (ismapped(pagetable, va)) {
-    return 0;
+    // another thread may have mapped it a moment ago: then the
+    // access is allowed. otherwise (text, guard page) it isn't.
+    pte = walk(pagetable, va, 0);
+    mem = 0;
+    if ((*pte & PTE_U) && (*pte & (read ? PTE_R : PTE_W)))
+      mem = PTE2PA(*pte);
+    release(&vm->lock);
+    return mem;
   }
   mem = (uint64)kalloc();
-  if (mem == 0)
-    return 0;
-  memset((void *)mem, 0, PGSIZE);
-  if (mappages(pagetable, va, PGSIZE, mem, PTE_W | PTE_U | PTE_R) != 0) {
-    kfree((void *)mem);
-    return 0;
+  if (mem != 0) {
+    memset((void *)mem, 0, PGSIZE);
+    if (mappages(pagetable, va, PGSIZE, mem, PTE_W | PTE_U | PTE_R) != 0) {
+      kfree((void *)mem);
+      mem = 0;
+    }
   }
+  release(&vm->lock);
   return mem;
 }
 

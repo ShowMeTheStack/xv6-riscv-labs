@@ -318,27 +318,46 @@ userinit(void)
   release(&p->lock);
 }
 
-// Grow or shrink user memory by n bytes.
-// Return 0 on success, -1 on failure.
-int
-growproc(int n)
+// Grow or shrink user memory by n bytes. If n > 0 and not
+// eager, only reserve the addresses: vmfault() allocates each
+// page on first touch. Return the old size, or -1 on failure.
+// Threads of a process may call this at the same time.
+uint64
+growproc(int n, int eager)
 {
-  uint64 sz;
+  uint64 sz, newsz;
   struct proc *p = myproc();
+  struct vm *vm = p->vm;
 
-  sz = p->vm->sz;
+  acquire(&vm->lock);
+  sz = newsz = vm->sz;
   if (n > 0) {
-    if (sz + n > TRAPFRAME) {
-      return -1;
-    }
-    if ((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
-      return -1;
+    if (sz + n > TRAPFRAME)
+      goto bad;
+    newsz = sz + n;
+    if (eager) {
+      // shared: uvmgrow() never unmaps a page on failure.
+      if (vm->ref > 1)
+        newsz = uvmgrow(p->pagetable, sz, newsz, PTE_W);
+      else
+        newsz = uvmalloc(p->pagetable, sz, newsz, PTE_W);
+      if (newsz == 0)
+        goto bad;
     }
   } else if (n < 0) {
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    // another thread may be using the memory, even in the
+    // middle of a copyout(): don't free it under it.
+    if (vm->ref > 1)
+      goto bad;
+    newsz = uvmdealloc(p->pagetable, sz, sz + n);
   }
-  p->vm->sz = sz;
-  return 0;
+  vm->sz = newsz;
+  release(&vm->lock);
+  return sz;
+
+bad:
+  release(&vm->lock);
+  return -1;
 }
 
 // Create a new process, copying the parent.
@@ -355,13 +374,17 @@ kfork(void)
     return -1;
   }
 
-  // Copy user memory from parent to child.
+  // Copy user memory from parent to child, while no other
+  // thread of the parent changes it.
+  acquire(&p->vm->lock);
   if (uvmcopy(p->pagetable, np->pagetable, p->vm->sz) < 0) {
+    release(&p->vm->lock);
     freeproc(np);
     release(&np->lock);
     return -1;
   }
   np->vm->sz = p->vm->sz;
+  release(&p->vm->lock);
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
