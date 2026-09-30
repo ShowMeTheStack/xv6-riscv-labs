@@ -78,6 +78,10 @@ int             printk(char*, ...) __attribute__ ((format (printf, 1, 2)));
 void            panic(char*) __attribute__((noreturn));
 void            printkinit(void);
 
+// futex.c
+int             kfutex_wait(uint64, int);
+int             kfutex_wake(uint64, int);
+
 // proc.c
 int             cpuid(void);
 void            kexit(int);

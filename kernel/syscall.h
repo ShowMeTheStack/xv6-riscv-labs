@@ -23,3 +23,5 @@
 #define SYS_sync   22
 #define SYS_clone  23
 #define SYS_join   24
+#define SYS_futex_wait 25
+#define SYS_futex_wake 26

@@ -45,3 +45,5 @@ entry("uptime");
 entry("sync");
 entry("clone");
 entry("join");
+entry("futex_wait");
+entry("futex_wake");

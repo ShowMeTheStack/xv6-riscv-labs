@@ -27,6 +27,8 @@ int uptime(void);
 int sync(void);
 int clone(void (*)(void *), void *, void *);
 int join(int *);
+int futex_wait(int *, int);
+int futex_wake(int *, int);
 
 // ulib.c
 int stat(const char *, struct stat *);

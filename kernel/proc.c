@@ -491,6 +491,7 @@ killthreads(struct proc *p)
     acquire(&pp->lock);
     if (pp->vm == p->vm) {
       pp->killed = 1;
+      pp->chan = 0; // see kkill()
       if (pp->state == SLEEPING)
         pp->state = RUNNABLE;
     }
@@ -803,6 +804,9 @@ kkill(int pid)
     acquire(&p->lock);
     if (p->pid == pid) {
       p->killed = 1;
+      // a victim between its killed() check and sleep()
+      // (futex_wait, for one) must not go to sleep after all.
+      p->chan = 0;
       if (p->state == SLEEPING) {
         // Wake process from sleep().
         p->state = RUNNABLE;

@@ -57,6 +57,28 @@ sys_join(void)
   return kwait(p, 1);
 }
 
+// futex_wait(addr, val): sleep if *addr == val.
+uint64
+sys_futex_wait(void)
+{
+  uint64 addr;
+  int val;
+  argaddr(0, &addr);
+  argint(1, &val);
+  return kfutex_wait(addr, val);
+}
+
+// futex_wake(addr, n): wake up to n futex_wait(addr)ers.
+uint64
+sys_futex_wake(void)
+{
+  uint64 addr;
+  int n;
+  argaddr(0, &addr);
+  argint(1, &n);
+  return kfutex_wake(addr, n);
+}
+
 uint64
 sys_sbrk(void)
 {
