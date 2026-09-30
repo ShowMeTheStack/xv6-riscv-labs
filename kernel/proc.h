@@ -108,6 +108,7 @@ struct proc {
   struct vm *vm;               // Address space, shared by threads
   pagetable_t pagetable;       // User page table (the vm's)
   int slot;                    // Trapframe slot in vm->tfpage
+  int thread;                  // Made by clone(): exit ends only it
   struct trapframe *trapframe; // data for trampoline.S, in that slot
   struct context context;      // swtch() here to run process
   struct file *ofile[NOFILE];  // Open files

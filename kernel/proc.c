@@ -214,6 +214,7 @@ found:
       return 0;
     }
     p->slot = 0;
+    p->thread = 0;
   } else {
     // One more thread in vm, in a slot of its own.
     if ((p->slot = sharevm(vm)) < 0) {
@@ -222,6 +223,7 @@ found:
       return 0;
     }
     p->vm = vm;
+    p->thread = 1;
   }
   p->trapframe = (struct trapframe *)(p->vm->tfpage + p->slot * TFSIZE);
   if (vm == 0 && (p->pagetable = proc_pagetable(p)) == 0) {
@@ -477,9 +479,28 @@ reparent(struct proc *p)
   }
 }
 
-// Exit the current process.  Does not return.
-// An exited process remains in the zombie state
-// until its parent calls wait().
+// Kill every other thread in p's address space.
+static void
+killthreads(struct proc *p)
+{
+  struct proc *pp;
+
+  for (pp = proc; pp < &proc[NPROC]; pp++) {
+    if (pp == p)
+      continue;
+    acquire(&pp->lock);
+    if (pp->vm == p->vm) {
+      pp->killed = 1;
+      if (pp->state == SLEEPING)
+        pp->state = RUNNABLE;
+    }
+    release(&pp->lock);
+  }
+}
+
+// Exit the current thread.  Does not return.
+// An exited thread remains in the zombie state
+// until its parent calls wait() (or join()).
 void
 kexit(int status)
 {
@@ -487,6 +508,11 @@ kexit(int status)
 
   if (p == initproc)
     panic("init exiting");
+
+  // the process ends when its first thread exits, or when any
+  // thread is killed (by kill() or a fault): end them all.
+  if (!p->thread || killed(p))
+    killthreads(p);
 
   // Close all open files.
   for (int fd = 0; fd < NOFILE; fd++) {
@@ -763,6 +789,8 @@ wakeup(void *chan)
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return
 // to user space (see usertrap() in trap.c).
+// If pid is one thread of a process, its kexit()
+// kills the other threads.
 int
 kkill(int pid)
 {

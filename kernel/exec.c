@@ -142,6 +142,7 @@ kexec(char *path, char **argv)
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;
   p->vm->sz = sz;
+  p->thread = 0;                 // the first thread of a new program
   p->trapframe->epc = elf.entry; // initial program counter = ulib.c:start()
   p->trapframe->sp = sp;         // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
