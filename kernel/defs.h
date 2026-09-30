@@ -82,6 +82,7 @@ void            printkinit(void);
 int             cpuid(void);
 void            kexit(int);
 int             kfork(void);
+int             kclone(uint64, uint64, uint64);
 int             growproc(int);
 void            proc_mapstacks(pagetable_t);
 pagetable_t     proc_pagetable(struct proc *);

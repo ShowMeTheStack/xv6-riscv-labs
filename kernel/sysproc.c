@@ -28,6 +28,18 @@ sys_fork(void)
   return kfork();
 }
 
+// clone(fn, arg, stack): a new thread that shares this
+// address space and starts at fn(arg) with sp = stack.
+uint64
+sys_clone(void)
+{
+  uint64 fn, arg, stack;
+  argaddr(0, &fn);
+  argaddr(1, &arg);
+  argaddr(2, &stack);
+  return kclone(fn, arg, stack);
+}
+
 uint64
 sys_wait(void)
 {

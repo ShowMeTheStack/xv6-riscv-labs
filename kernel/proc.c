@@ -137,6 +137,26 @@ allocvm(void)
   return 0;
 }
 
+// Add one more thread to vm: return a free trapframe slot
+// for it, or -1 if all NTHREAD slots are taken.
+static int
+sharevm(struct vm *vm)
+{
+  int i;
+
+  acquire(&vm->lock);
+  for (i = 0; i < NTHREAD; i++) {
+    if ((vm->slots & (1 << i)) == 0) {
+      vm->slots |= 1 << i;
+      vm->ref++;
+      release(&vm->lock);
+      return i;
+    }
+  }
+  release(&vm->lock);
+  return -1;
+}
+
 // Drop p's reference to its address space. The last
 // thread out frees the page table and the user memory.
 static void
@@ -162,10 +182,12 @@ dropvm(struct proc *p)
 
 // Look in the process table for an UNUSED proc.
 // If found, initialize state required to run in the kernel,
-// and return with p->lock held.
+// and return with p->lock held. If vm is 0 it gets a new
+// address space; otherwise it is a new thread in vm, and the
+// caller sets p->pagetable.
 // If there are no free procs, or a memory allocation fails, return 0.
 static struct proc *
-allocproc(void)
+allocproc(struct vm *vm)
 {
   struct proc *p;
 
@@ -183,17 +205,26 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
-  // A new address space with a trapframe page, of which this
-  // first thread uses slot 0, and an empty user page table.
-  if ((p->vm = allocvm()) == 0) {
-    freeproc(p);
-    release(&p->lock);
-    return 0;
+  if (vm == 0) {
+    // A new address space with a trapframe page, of which this
+    // first thread uses slot 0, and an empty user page table.
+    if ((p->vm = allocvm()) == 0) {
+      freeproc(p);
+      release(&p->lock);
+      return 0;
+    }
+    p->slot = 0;
+  } else {
+    // One more thread in vm, in a slot of its own.
+    if ((p->slot = sharevm(vm)) < 0) {
+      freeproc(p);
+      release(&p->lock);
+      return 0;
+    }
+    p->vm = vm;
   }
-  p->slot = 0;
-  p->trapframe = (struct trapframe *)p->vm->tfpage;
-  p->pagetable = proc_pagetable(p);
-  if (p->pagetable == 0) {
+  p->trapframe = (struct trapframe *)(p->vm->tfpage + p->slot * TFSIZE);
+  if (vm == 0 && (p->pagetable = proc_pagetable(p)) == 0) {
     freeproc(p);
     release(&p->lock);
     return 0;
@@ -277,7 +308,7 @@ userinit(void)
 {
   struct proc *p;
 
-  p = allocproc();
+  p = allocproc(0);
   initproc = p;
 
   p->cwd = namei("/");
@@ -320,7 +351,7 @@ kfork(void)
   struct proc *p = myproc();
 
   // Allocate process.
-  if ((np = allocproc()) == 0) {
+  if ((np = allocproc(0)) == 0) {
     return -1;
   }
 
@@ -339,6 +370,53 @@ kfork(void)
   np->trapframe->a0 = 0;
 
   // increment reference counts on open file descriptors.
+  for (i = 0; i < NOFILE; i++)
+    if (p->ofile[i])
+      np->ofile[i] = filedup(p->ofile[i]);
+  np->cwd = idup(p->cwd);
+
+  safestrcpy(np->name, p->name, sizeof(p->name));
+
+  pid = np->pid;
+
+  release(&np->lock);
+
+  acquire(&wait_lock);
+  np->parent = p;
+  release(&wait_lock);
+
+  acquire(&np->lock);
+  np->state = RUNNABLE;
+  release(&np->lock);
+
+  return pid;
+}
+
+// Create a new thread in the caller's address space. It starts
+// at fn(arg) on the given user stack, with its own trapframe
+// slot and kernel stack, and copies of the caller's open files
+// and current directory.
+int
+kclone(uint64 fn, uint64 arg, uint64 stack)
+{
+  int i, pid;
+  struct proc *np;
+  struct proc *p = myproc();
+
+  if ((np = allocproc(p->vm)) == 0)
+    return -1;
+
+  // the same page table: nothing is copied.
+  np->pagetable = p->pagetable;
+
+  // start at fn(arg) on the new stack. fn must not return:
+  // ra = 0 makes a return fault.
+  *(np->trapframe) = *(p->trapframe);
+  np->trapframe->epc = fn;
+  np->trapframe->a0 = arg;
+  np->trapframe->sp = stack;
+  np->trapframe->ra = 0;
+
   for (i = 0; i < NOFILE; i++)
     if (p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
