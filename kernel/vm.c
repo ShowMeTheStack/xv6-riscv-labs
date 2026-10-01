@@ -477,6 +477,44 @@ vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
   return mem;
 }
 
+// give the process its own writable copy of the copy-on-write
+// page at va, after a write to it. if this page table holds the
+// only reference, make the page writable again instead of copying.
+// returns the physical address of the writable page, or 0 if va
+// is not a copy-on-write user page or out of physical memory.
+uint64
+cowfault(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte;
+  uint64 pa;
+  uint flags;
+  char *mem;
+
+  if (va >= MAXVA)
+    return 0;
+  va = PGROUNDDOWN(va);
+  pte = walk(pagetable, va, 0);
+  if (pte == 0)
+    return 0;
+  if ((*pte & (PTE_V | PTE_U | PTE_COW)) != (PTE_V | PTE_U | PTE_COW))
+    return 0;
+  pa = PTE2PA(*pte);
+  flags = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_COW;
+
+  if (krefcount(pa) == 1) {
+    // nobody else shares it any more: take it over.
+    *pte = PA2PTE(pa) | flags;
+    return pa;
+  }
+
+  if ((mem = kalloc()) == 0)
+    return 0;
+  memmove(mem, (char *)pa, PGSIZE);
+  *pte = PA2PTE(mem) | flags;
+  kfree((void *)pa); // drop this page table's reference
+  return (uint64)mem;
+}
+
 int
 ismapped(pagetable_t pagetable, uint64 va)
 {
