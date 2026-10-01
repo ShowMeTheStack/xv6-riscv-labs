@@ -195,12 +195,60 @@ manytest(void)
   check("20 children", ok);
 }
 
+// try to read the time CSR from user mode.
+void
+userrdtime(void)
+{
+  uint64 x;
+  asm volatile("rdtime %0" : "=r"(x));
+}
+
+// call f for 20 ticks; print the calls made and the cost of one.
+// the clock is read with uuptime(), which costs no trap.
+void
+timeit(char *name, int (*f)(void))
+{
+  int i, t0;
+  uint64 n = 0;
+
+  t0 = uuptime();
+  while (uuptime() == t0) // start on a tick boundary
+    ;
+  t0 = uuptime();
+  while (uuptime() - t0 < 20) {
+    for (i = 0; i < 1000; i++)
+      f();
+    n += 1000;
+  }
+  // a tick is about 0.1 s: 20 ticks are about 2,000,000,000 ns.
+  printf("vdsotest: %s: %lu calls in 20 ticks, about %lu ns each\n", name, n,
+         2000000000UL / n);
+}
+
+void
+measure(void)
+{
+  // the timer CSR would be the best clock, if user mode may read it.
+  if (inchild(userrdtime) == -1)
+    printf("vdsotest: rdtime in user mode: killed, so time is in ticks\n");
+  else
+    printf("vdsotest: rdtime in user mode: allowed\n");
+  timeit("getpid()", getpid);
+  timeit("ugetpid()", ugetpid);
+  timeit("uptime()", uptime);
+  timeit("uuptime()", uuptime);
+}
+
 int
 main(int argc, char *argv[])
 {
   if (argc == 2 && strcmp(argv[1], "exec") == 0) {
     // after exec: the new page table maps the same pid.
     exit(ugetpid() == getpid() ? 0 : 1);
+  }
+  if (argc == 2 && strcmp(argv[1], "time") == 0) {
+    measure();
+    exit(0);
   }
 
   pidtest();
