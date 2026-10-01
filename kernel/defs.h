@@ -9,6 +9,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct ushared;
 
 // bio.c
 void            binit(void);
@@ -143,6 +144,7 @@ extern uint     ticks;
 void            trapinit(void);
 void            trapinithart(void);
 extern struct spinlock tickslock;
+extern struct ushared *ushared;
 void            prepare_return(void);
 
 // uart.c

@@ -8,6 +8,7 @@
 
 struct spinlock tickslock;
 uint ticks;
+struct ushared *ushared; // mapped at USHARED in every process
 
 extern char trampoline[], uservec[];
 
@@ -20,6 +21,11 @@ void
 trapinit(void)
 {
   initlock(&tickslock, "time");
+
+  // one page, shared read-only by every process, never freed.
+  if ((ushared = (struct ushared *)kalloc()) == 0)
+    panic("trapinit: ushared");
+  memset(ushared, 0, PGSIZE);
 }
 
 // set up to take exceptions and traps while in the kernel.
@@ -169,6 +175,7 @@ clockintr()
   if (cpuid() == 0) {
     acquire(&tickslock);
     ticks++;
+    ushared->ticks = ticks; // user code reads it with no lock
     wakeup(&ticks);
     release(&tickslock);
   }
