@@ -58,6 +58,25 @@
 //   fixed-size stack
 //   expandable heap
 //   ...
+//   USHARED (one page shared by all processes, read-only)
+//   USYSCALL (this process's struct usyscall, read-only)
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
 #define TRAPFRAME (TRAMPOLINE - PGSIZE)
+#define USYSCALL  (TRAPFRAME - PGSIZE)
+#define USHARED   (USYSCALL - PGSIZE)
+
+// the heap may grow up to, but not into, these pages.
+#define MAXHEAP USHARED
+
+#ifndef __ASSEMBLER__
+// what user code can read at USYSCALL without a system call.
+struct usyscall {
+  int pid; // this process's pid
+};
+
+// what every process can read at USHARED.
+struct ushared {
+  uint ticks; // a copy of ticks, updated by clockintr()
+};
+#endif
