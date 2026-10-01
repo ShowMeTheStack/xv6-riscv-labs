@@ -386,6 +386,10 @@ copyin(pagetable_t pagetable, uint64 psz, char *dst, uint64 srcva, uint64 len)
 
   while (len > 0) {
     va0 = PGROUNDDOWN(srcva);
+    // system calls read only the process's memory, below
+    // psz, not the read-only pages above it.
+    if (va0 >= psz)
+      return -1;
     pa0 = walkaddr(pagetable, va0);
     if (pa0 == 0) {
       if ((pa0 = vmfault(pagetable, psz, va0, 1)) == 0) {
@@ -417,6 +421,8 @@ copyinstr(pagetable_t pagetable, uint64 psz, char *dst, uint64 srcva,
 
   while (got_null == 0 && max > 0) {
     va0 = PGROUNDDOWN(srcva);
+    if (va0 >= psz) // as in copyin()
+      return -1;
     pa0 = walkaddr(pagetable, va0);
     if (pa0 == 0) {
       if ((pa0 = vmfault(pagetable, psz, va0, 1)) == 0) {
