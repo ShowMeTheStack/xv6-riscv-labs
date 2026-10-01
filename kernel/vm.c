@@ -360,6 +360,12 @@ copyout(pagetable_t pagetable, uint64 psz, uint64 dstva, char *src, uint64 len)
     }
 
     pte = walk(pagetable, va0, 0);
+    // the kernel's own writes do not fault: copy a
+    // copy-on-write page here, as a user store would.
+    if ((*pte & PTE_COW) != 0) {
+      if ((pa0 = cowfault(pagetable, va0)) == 0)
+        return -1;
+    }
     // forbid copyout over read-only user text pages.
     if ((*pte & PTE_W) == 0)
       return -1;
