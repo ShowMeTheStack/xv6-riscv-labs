@@ -52,3 +52,12 @@ void printf(const char *, ...) __attribute__((format(printf, 1, 2)));
 // umalloc.c
 void *malloc(uint);
 void free(void *);
+
+// uthread.c
+struct mutex {
+  int v; // 0: free, 1: held, 2: held, maybe with sleepers
+};
+int thread_create(int (*)(void *), void *);
+int thread_join(int *);
+void mutex_lock(struct mutex *);
+void mutex_unlock(struct mutex *);
