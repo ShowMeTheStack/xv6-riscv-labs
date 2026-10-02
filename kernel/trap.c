@@ -51,7 +51,12 @@ usertrap(void)
   // save user program counter.
   p->trapframe->epc = r_sepc();
 
-  if (r_scause() == 8) {
+  // vmfault may sleep (loading a page of the program), and while
+  // this process sleeps other traps reuse these registers.
+  uint64 scause = r_scause();
+  uint64 stval = r_stval();
+
+  if (scause == 8) {
     // system call
 
     if (killed(p))
@@ -68,13 +73,12 @@ usertrap(void)
     syscall();
   } else if ((which_dev = devintr()) != 0) {
     // ok
-  } else if ((r_scause() == 15 || r_scause() == 13) &&
-             vmfault(p->pagetable, p->sz, r_stval(),
-                     (r_scause() == 13) ? 1 : 0) != 0) {
+  } else if ((scause == 15 || scause == 13) &&
+             vmfault(p->pagetable, p->sz, stval, (scause == 13) ? 1 : 0) != 0) {
     // page fault on lazily-allocated page
   } else {
-    printk("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
-    printk("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
+    printk("usertrap(): unexpected scause 0x%lx pid=%d\n", scause, p->pid);
+    printk("            sepc=0x%lx stval=0x%lx\n", p->trapframe->epc, stval);
     setkilled(p);
   }
 
