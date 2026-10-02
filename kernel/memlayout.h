@@ -61,3 +61,12 @@
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
 #define TRAPFRAME (TRAMPOLINE - PGSIZE)
+
+// The user stack region: the top USERSTACK pages below
+// TRAPFRAME. The stack grows down from USTACKTOP, one page
+// at a time, but never below USTACKBASE. The heap must end
+// at or below MAXHEAP, which leaves one unmapped guard page
+// between the heap and the lowest possible stack page.
+#define USTACKTOP  TRAPFRAME
+#define USTACKBASE (USTACKTOP - USERSTACK * PGSIZE)
+#define MAXHEAP    (USTACKBASE - PGSIZE)
