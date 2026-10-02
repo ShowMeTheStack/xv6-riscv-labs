@@ -286,6 +286,7 @@ kfork(void)
     if (p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
+  np->exe = idup(p->exe); // the child runs the same program
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
@@ -341,8 +342,10 @@ kexit(int status)
 
   begin_op();
   iput(p->cwd);
+  iput(p->exe); // may free an unlinked program: needs the transaction
   end_op();
   p->cwd = 0;
+  p->exe = 0;
 
   acquire(&wait_lock);
 

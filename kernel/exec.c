@@ -31,7 +31,7 @@ kexec(char *path, char **argv)
   int i, off;
   uint64 argc, sz = 0, sp, ustack[MAXARG], stackbase;
   struct elfhdr elf;
-  struct inode *ip;
+  struct inode *ip, *oldexe;
   struct proghdr ph;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
@@ -76,9 +76,8 @@ kexec(char *path, char **argv)
     if (loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)
       goto bad;
   }
-  iunlockput(ip);
-  end_op();
-  ip = 0;
+  // ip stays locked, and the transaction open, until the new
+  // image is committed below.
 
   p = myproc();
   uint64 oldsz = p->sz;
@@ -131,10 +130,17 @@ kexec(char *path, char **argv)
 
   // Commit to the user image.
   oldpagetable = p->pagetable;
+  oldexe = p->exe;
   p->pagetable = pagetable;
   p->sz = sz;
+  // keep namei's reference: the image's pages come from ip.
+  p->exe = ip;
   p->trapframe->epc = elf.entry; // initial program counter = ulib.c:start()
   p->trapframe->sp = sp;         // initial stack pointer
+  iunlock(ip);
+  if (oldexe)
+    iput(oldexe); // inside the transaction: it may free the file
+  end_op();
   proc_freepagetable(oldpagetable, oldsz);
 
   return argc; // this ends up in a0, the first argument to main(argc, argv)
