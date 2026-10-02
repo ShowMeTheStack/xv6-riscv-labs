@@ -205,12 +205,14 @@ proc_pagetable(struct proc *p)
 }
 
 // Free a process's page table, and free the
-// physical memory it refers to.
+// physical memory it refers to: the pages below sz
+// and the pages the stack has grown into.
 void
 proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  uvmunmap(pagetable, USTACKBASE, USERSTACK, 1);
   uvmfree(pagetable, sz);
 }
 
