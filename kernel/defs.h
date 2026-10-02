@@ -25,6 +25,8 @@ void            consputc(int);
 
 // exec.c
 int             kexec(char*, char**);
+uint64          imgend(struct proc*);
+uint64          loadpage(struct proc*, uint64);
 
 // file.c
 struct file*    filealloc(void);

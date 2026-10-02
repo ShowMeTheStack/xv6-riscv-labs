@@ -193,3 +193,62 @@ loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset,
 
   return 0;
 }
+
+// The end of p's program image. Addresses below it belong to the
+// program's segments; the stack and the heap lie above it.
+uint64
+imgend(struct proc *p)
+{
+  struct seg *s;
+
+  if (p->nseg == 0)
+    return 0;
+  s = &p->seg[p->nseg - 1];
+  return s->va + s->memsz;
+}
+
+// Read the page at va of p's program image from the executable
+// and map it with its segment's permissions. va must be
+// page-aligned, below imgend(p), and not mapped. Called by
+// vmfault. May sleep, so the caller must hold no spinlock (and
+// not the executable's inode lock). Returns the page's physical
+// address, or 0 if va is in no segment or the page can't be loaded.
+uint64
+loadpage(struct proc *p, uint64 va)
+{
+  struct seg *s;
+  uint64 off;
+  uint n;
+  char *mem;
+
+  for (s = p->seg; s < &p->seg[p->nseg]; s++)
+    if (va >= s->va && va < s->va + s->memsz)
+      break;
+  if (s == &p->seg[p->nseg])
+    return 0; // a hole between segments
+
+  if ((mem = kalloc()) == 0)
+    return 0;
+  // zero first: what the file does not supply (the bss, the end
+  // of the last page) must read as 0, not as kalloc's junk.
+  memset(mem, 0, PGSIZE);
+  off = va - s->va;
+  if (off < s->filesz) {
+    n = PGSIZE;
+    if (s->filesz - off < PGSIZE)
+      n = s->filesz - off;
+    ilock(p->exe);
+    if (readi(p->exe, 0, (uint64)mem, s->off + off, n) != n) {
+      iunlock(p->exe); // the file is shorter than the program
+      kfree(mem);
+      return 0;
+    }
+    iunlock(p->exe);
+  }
+  if (mappages(p->pagetable, va, PGSIZE, (uint64)mem,
+               PTE_R | PTE_U | s->perm) != 0) {
+    kfree(mem);
+    return 0;
+  }
+  return (uint64)mem;
+}
