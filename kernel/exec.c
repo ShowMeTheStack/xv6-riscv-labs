@@ -33,6 +33,8 @@ kexec(char *path, char **argv)
   struct elfhdr elf;
   struct inode *ip, *oldexe;
   struct proghdr ph;
+  struct seg seg[NSEG];
+  int nseg = 0;
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
 
@@ -68,6 +70,8 @@ kexec(char *path, char **argv)
       goto bad;
     if (ph.vaddr % PGSIZE != 0)
       goto bad;
+    if (ph.vaddr < sz || nseg == NSEG) // overlapping, or too many
+      goto bad;
     uint64 sz1;
     if ((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz,
                         flags2perm(ph.flags))) == 0)
@@ -75,6 +79,13 @@ kexec(char *path, char **argv)
     sz = sz1;
     if (loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)
       goto bad;
+    // remember where the segment's bytes are in the file.
+    seg[nseg].va = ph.vaddr;
+    seg[nseg].memsz = ph.memsz;
+    seg[nseg].off = ph.off;
+    seg[nseg].filesz = ph.filesz;
+    seg[nseg].perm = flags2perm(ph.flags);
+    nseg++;
   }
   // ip stays locked, and the transaction open, until the new
   // image is committed below.
@@ -135,6 +146,8 @@ kexec(char *path, char **argv)
   p->sz = sz;
   // keep namei's reference: the image's pages come from ip.
   p->exe = ip;
+  memmove(p->seg, seg, sizeof(seg));
+  p->nseg = nseg;
   p->trapframe->epc = elf.entry; // initial program counter = ulib.c:start()
   p->trapframe->sp = sp;         // initial stack pointer
   iunlock(ip);

@@ -287,6 +287,8 @@ kfork(void)
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
   np->exe = idup(p->exe); // the child runs the same program
+  memmove(np->seg, p->seg, sizeof(p->seg));
+  np->nseg = p->nseg;
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 

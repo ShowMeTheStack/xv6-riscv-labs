@@ -78,6 +78,15 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+// A loadable segment of the running program, recorded by exec.
+struct seg {
+  uint64 va;     // first virtual address, page-aligned
+  uint64 memsz;  // bytes in memory
+  uint64 off;    // offset of the segment in the file
+  uint64 filesz; // bytes that come from the file; the rest is zero
+  int perm;      // PTE_X and/or PTE_W
+};
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -101,5 +110,7 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   struct inode *exe;           // Executable file the image comes from
+  struct seg seg[NSEG];        // Its loadable segments, by address
+  int nseg;                    // Number of segments in seg[]
   char name[16];               // Process name (debugging)
 };
