@@ -269,13 +269,17 @@ kfork(void)
     return -1;
   }
 
-  // Copy user memory from parent to child.
-  if (uvmcopy(p->pagetable, np->pagetable, p->sz) < 0) {
+  // Copy user memory from parent to child: everything below
+  // p->sz, and the pages the parent's stack has grown into.
+  // Set np->sz first, so that if the second copy fails,
+  // freeproc() frees what the first one copied.
+  np->sz = p->sz;
+  if (uvmcopy(p->pagetable, np->pagetable, 0, p->sz) < 0 ||
+      uvmcopy(p->pagetable, np->pagetable, USTACKBASE, USTACKTOP) < 0) {
     freeproc(np);
     release(&np->lock);
     return -1;
   }
-  np->sz = p->sz;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);

@@ -290,20 +290,21 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 }
 
 // Given a parent process's page table, copy
-// its memory into a child's page table.
+// the pages it maps in [start, end) into a child's
+// page table. start must be page-aligned.
 // Copies both the page table and the
 // physical memory.
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+uvmcopy(pagetable_t old, pagetable_t new, uint64 start, uint64 end)
 {
   pte_t *pte;
   uint64 pa, i;
   uint flags;
   char *mem;
 
-  for (i = 0; i < sz; i += PGSIZE) {
+  for (i = start; i < end; i += PGSIZE) {
     if ((pte = walk(old, i, 0)) == 0)
       continue; // page table entry hasn't been allocated
     if ((*pte & PTE_V) == 0)
@@ -321,7 +322,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   return 0;
 
 err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+  uvmunmap(new, start, (i - start) / PGSIZE, 1);
   return -1;
 }
 
