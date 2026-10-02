@@ -2711,7 +2711,7 @@ lazy_copy(char *s)
 
   // read() and write() to these addresses should fail.
   unsigned long bad[] = {
-    0x3fffffc000, 0x3fffffd000, 0x3fffffe000,
+    MAXHEAP - PGSIZE, MAXHEAP, 0x3fffffe000,
     0x3ffffff000, 0x4000000000, 0x8000000000,
   };
   for (int i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {

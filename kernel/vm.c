@@ -453,7 +453,8 @@ copyinstr(pagetable_t pagetable, uint64 psz, char *dst, uint64 srcva,
 }
 
 // allocate and map user memory if process is referencing a page
-// that was lazily allocated in sys_sbrk().
+// that was lazily allocated in sys_sbrk(), or a page of the
+// stack region that the stack has not grown into yet.
 // returns 0 if va is invalid or already mapped, or if
 // out of physical memory, and physical address if successful.
 uint64
@@ -461,7 +462,7 @@ vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
 {
   uint64 mem;
 
-  if (va >= psz)
+  if (va >= psz && (va < USTACKBASE || va >= USTACKTOP))
     return 0;
   va = PGROUNDDOWN(va);
   if (ismapped(pagetable, va)) {
