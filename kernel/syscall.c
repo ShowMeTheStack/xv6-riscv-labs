@@ -12,8 +12,12 @@ int
 fetchaddr(uint64 addr, uint64 *ip)
 {
   struct proc *p = myproc();
-  if (addr >= p->sz ||
-      addr + sizeof(uint64) > p->sz) // both tests needed, in case of overflow
+  // the 8 bytes must lie below p->sz or inside the stack region.
+  // addr is tested first, so that addr + 8 cannot overflow.
+  int inmem = addr < p->sz && addr + sizeof(uint64) <= p->sz;
+  int instack = addr >= USTACKBASE && addr < USTACKTOP &&
+                addr + sizeof(uint64) <= USTACKTOP;
+  if (!inmem && !instack)
     return -1;
   if (copyin(p->pagetable, p->sz, (char *)ip, addr, sizeof(*ip)) != 0)
     return -1;
