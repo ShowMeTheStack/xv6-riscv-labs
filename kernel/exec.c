@@ -181,6 +181,26 @@ imgend(struct proc *p)
   return s->va + s->memsz;
 }
 
+// p has shrunk to sz (sbrk with a negative size). Forget the parts
+// of its segments above sz, page by page, so that memory the
+// process grows into later is zeroed, as before, and is not read
+// from the file.
+void
+segtrim(struct proc *p, uint64 sz)
+{
+  uint64 top = PGROUNDUP(sz);
+  int i;
+
+  for (i = 0; i < p->nseg && p->seg[i].va < top; i++) {
+    struct seg *s = &p->seg[i];
+    if (s->va + s->memsz > top)
+      s->memsz = top - s->va;
+    if (s->filesz > s->memsz)
+      s->filesz = s->memsz;
+  }
+  p->nseg = i; // drop the segments entirely above sz
+}
+
 // Read the page at va of p's program image from the executable
 // and map it with its segment's permissions. va must be
 // page-aligned, below imgend(p), and not mapped. Called by
