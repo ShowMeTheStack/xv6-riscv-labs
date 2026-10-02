@@ -76,6 +76,10 @@ sys_read(void)
   argint(2, &n);
   if (argfd(0, 0, &f) < 0)
     return -1;
+  // load the buffer's program pages now: fileread holds locks
+  // while it copies, and loading a page needs to sleep.
+  if (n > 0 && uvmprefault(myproc(), p, n) < 0)
+    return -1;
   return fileread(f, p, n);
 }
 
@@ -89,6 +93,9 @@ sys_write(void)
   argaddr(1, &p);
   argint(2, &n);
   if (argfd(0, 0, &f) < 0)
+    return -1;
+  // as in sys_read: filewrite copies in while holding locks.
+  if (n > 0 && uvmprefault(myproc(), p, n) < 0)
     return -1;
 
   return filewrite(f, p, n);

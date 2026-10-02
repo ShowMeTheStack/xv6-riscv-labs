@@ -482,6 +482,30 @@ vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
   return mem;
 }
 
+// Load the pages of p's program in [va, va+n) that are not mapped
+// yet. A system call that copies to or from user memory while it
+// holds locks calls this first, with no locks held: loading a page
+// of the program sleeps and locks the executable's inode.
+// Returns -1 if a page of the program in the range can't be loaded.
+int
+uvmprefault(struct proc *p, uint64 va, uint64 n)
+{
+  uint64 a, end;
+
+  end = imgend(p);
+  if (n == 0 || va >= end)
+    return 0;
+  if (n > end - va)
+    n = end - va;
+  for (a = PGROUNDDOWN(va); a < va + n; a += PGSIZE) {
+    if (ismapped(p->pagetable, a))
+      continue;
+    if (vmfault(p->pagetable, p->sz, a, 1) == 0)
+      return -1;
+  }
+  return 0;
+}
+
 int
 ismapped(pagetable_t pagetable, uint64 va)
 {

@@ -33,6 +33,9 @@ sys_wait(void)
 {
   uint64 p;
   argaddr(0, &p);
+  // kwait copies the status out holding spinlocks.
+  if (p != 0 && uvmprefault(myproc(), p, sizeof(int)) < 0)
+    return -1;
   return kwait(p);
 }
 
