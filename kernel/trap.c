@@ -73,9 +73,10 @@ usertrap(void)
     syscall();
   } else if ((which_dev = devintr()) != 0) {
     // ok
-  } else if ((scause == 15 || scause == 13) &&
-             vmfault(p->pagetable, p->sz, stval, (scause == 13) ? 1 : 0) != 0) {
-    // page fault on lazily-allocated page
+  } else if ((scause == 15 || scause == 13 || scause == 12) &&
+             vmfault(p->pagetable, p->sz, stval, (scause == 15) ? 0 : 1) != 0) {
+    // page fault on lazily-allocated page, or on a page of the
+    // program not loaded yet (12: instruction fetch).
   } else {
     printk("usertrap(): unexpected scause 0x%lx pid=%d\n", scause, p->pid);
     printk("            sepc=0x%lx stval=0x%lx\n", p->trapframe->epc, stval);
