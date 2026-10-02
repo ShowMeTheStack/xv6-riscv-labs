@@ -3468,11 +3468,27 @@ countfree()
   return n;
 }
 
+// read one byte of every page of this program's image (text, data
+// and bss), so that a kernel that loads the image on demand has
+// loaded all of it.
+void
+touchimage(void)
+{
+  extern char end[];
+
+  for (uint64 a = 0; a < (uint64)end; a += PGSIZE)
+    (void)*(volatile char *)a;
+}
+
 int
 drivetests(int quick, int continuous, char *justone)
 {
   do {
     printf("usertests starting\n");
+    // the tests touch parts of this program that nothing touched
+    // before; with demand-paged exec that loads pages, which are
+    // not lost.
+    touchimage();
     int free0 = countfree();
     int free1 = 0;
     int ntests = 0;
