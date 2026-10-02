@@ -452,13 +452,15 @@ copyinstr(pagetable_t pagetable, uint64 psz, char *dst, uint64 srcva,
 }
 
 // allocate and map user memory if process is referencing a page
-// that was lazily allocated in sys_sbrk().
+// that was lazily allocated in sys_sbrk(), or a page of the
+// program that exec has not loaded yet.
 // returns 0 if va is invalid or already mapped, or if
 // out of physical memory, and physical address if successful.
 uint64
 vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
 {
   uint64 mem;
+  struct proc *p = myproc();
 
   if (va >= psz)
     return 0;
@@ -466,6 +468,9 @@ vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
   if (ismapped(pagetable, va)) {
     return 0;
   }
+  // text or data of the program: read it from the file.
+  if (pagetable == p->pagetable && va < imgend(p))
+    return loadpage(p, va);
   mem = (uint64)kalloc();
   if (mem == 0)
     return 0;
