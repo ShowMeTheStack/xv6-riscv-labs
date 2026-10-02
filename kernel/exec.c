@@ -6,8 +6,9 @@
 #include "proc.h"
 #include "defs.h"
 #include "elf.h"
-
-static int loadseg(pde_t *, uint64, struct inode *, uint, uint);
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 // map ELF permissions to PTE permission bits.
 int
@@ -58,7 +59,8 @@ kexec(char *path, char **argv)
   if ((pagetable = proc_pagetable(p)) == 0)
     goto bad;
 
-  // Load program into memory.
+  // Record the program's segments. Their pages are read from ip
+  // when the program first touches them (loadpage).
   for (i = 0, off = elf.phoff; i < elf.phnum; i++, off += sizeof(ph)) {
     if (readi(ip, 0, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))
       goto bad;
@@ -72,13 +74,11 @@ kexec(char *path, char **argv)
       goto bad;
     if (ph.vaddr < sz || nseg == NSEG) // overlapping, or too many
       goto bad;
-    uint64 sz1;
-    if ((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz,
-                        flags2perm(ph.flags))) == 0)
-      goto bad;
-    sz = sz1;
-    if (loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)
-      goto bad;
+    if (ph.vaddr + ph.memsz > TRAPFRAME - (USERSTACK + 1) * PGSIZE)
+      goto bad; // no room for the guard page and the stack
+    if (ph.off + ph.filesz < ph.off || ph.off + ph.filesz > ip->size)
+      goto bad; // the file must hold the segment's bytes
+    sz = ph.vaddr + ph.memsz;
     // remember where the segment's bytes are in the file.
     seg[nseg].va = ph.vaddr;
     seg[nseg].memsz = ph.memsz;
@@ -166,32 +166,6 @@ bad:
     end_op();
   }
   return -1;
-}
-
-// Load an ELF program segment into pagetable at virtual address va.
-// va must be page-aligned
-// and the pages from va to va+sz must already be mapped.
-// Returns 0 on success, -1 on failure.
-static int
-loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset,
-        uint sz)
-{
-  uint i, n;
-  uint64 pa;
-
-  for (i = 0; i < sz; i += PGSIZE) {
-    pa = walkaddr(pagetable, va + i);
-    if (pa == 0)
-      panic("loadseg: address should exist");
-    if (sz - i < PGSIZE)
-      n = sz - i;
-    else
-      n = PGSIZE;
-    if (readi(ip, 0, (uint64)pa, offset + i, n) != n)
-      return -1;
-  }
-
-  return 0;
 }
 
 // The end of p's program image. Addresses below it belong to the
