@@ -62,6 +62,7 @@ void            kfree(void *);
 void            kinit(void);
 void*           superalloc(void);
 void            superfree(void *);
+void            supersplit(void *);
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -159,6 +160,7 @@ void            kvminithart(void);
 void            kvmmap(pagetable_t, uint64, uint64, uint64, int);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
 int             mapsuper(pagetable_t, uint64, uint64, int);
+int             demote(pagetable_t, uint64);
 pagetable_t     uvmcreate(void);
 uint64          uvmalloc(pagetable_t, uint64, uint64, int);
 uint64          uvmdealloc(pagetable_t, uint64, uint64);

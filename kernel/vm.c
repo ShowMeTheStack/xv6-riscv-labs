@@ -217,6 +217,32 @@ mapsuper(pagetable_t pagetable, uint64 va, uint64 pa, int perm)
   return 0;
 }
 
+// If va lies in a superpage, split it: a new level-0
+// page-table page maps the same 2 megabytes of physical
+// memory as 512 pages with the same permissions, so the
+// data stays where it is. Returns 0 on success (or if va is
+// not in a superpage), -1 if out of memory.
+int
+demote(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte;
+  pagetable_t l0;
+  uint64 pa;
+  int level = 0;
+
+  pte = walklevel(pagetable, va, 0, &level);
+  if (pte == 0 || (*pte & PTE_V) == 0 || level != 1)
+    return 0;
+  if ((l0 = (pagetable_t)kalloc()) == 0)
+    return -1;
+  pa = PTE2PA(*pte);
+  for (int i = 0; i < 512; i++)
+    l0[i] = PA2PTE(pa + i * PGSIZE) | PTE_FLAGS(*pte);
+  supersplit((void *)pa);
+  *pte = PA2PTE(l0) | PTE_V;
+  return 0;
+}
+
 // create an empty user page table.
 // returns 0 if out of memory.
 pagetable_t
@@ -299,7 +325,8 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
 // Deallocate user pages to bring the process size from oldsz to
 // newsz.  oldsz and newsz need not be page-aligned, nor does newsz
 // need to be less than oldsz.  oldsz can be larger than the actual
-// process size.  Returns the new process size.
+// process size.  Returns the new process size, which is oldsz
+// if a superpage that newsz cuts could not be split.
 uint64
 uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 {
@@ -307,6 +334,10 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     return oldsz;
 
   if (PGROUNDUP(newsz) < PGROUNDUP(oldsz)) {
+    // a superpage that straddles the new end must be split first.
+    if ((PGROUNDUP(newsz) % SUPERPGSIZE) != 0 &&
+        demote(pagetable, PGROUNDUP(newsz)) != 0)
+      return oldsz;
     int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
     uvmunmap(pagetable, PGROUNDUP(newsz), npages, 1);
   }

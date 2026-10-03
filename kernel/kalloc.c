@@ -155,6 +155,22 @@ superfree(void *pa)
   release(&kmem.lock);
 }
 
+// A superpage in use becomes 512 pages in use: from now
+// on they are freed one at a time with kfree().
+void
+supersplit(void *pa)
+{
+  int c = CHUNK(pa);
+
+  acquire(&kmem.lock);
+  if (kmem.state[c] != SUPER)
+    panic("supersplit");
+  kmem.state[c] = SPLIT;
+  kmem.freelist[c] = 0;
+  kmem.nfree[c] = 0;
+  release(&kmem.lock);
+}
+
 // Can chunk c become a superpage? Caller holds kmem.lock.
 static int
 whole(int c)
