@@ -295,6 +295,8 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 
 // Allocate PTEs and physical memory to grow a process from oldsz to
 // newsz, which need not be page aligned.  Returns new size or 0 on error.
+// Every 2-megabyte-aligned 2 megabytes of the new range gets a
+// superpage if one is free.
 uint64
 uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
 {
@@ -306,6 +308,15 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
 
   oldsz = PGROUNDUP(oldsz);
   for (a = oldsz; a < newsz; a += PGSIZE) {
+    if ((a % SUPERPGSIZE) == 0 && a + SUPERPGSIZE <= newsz &&
+        (mem = superalloc()) != 0) {
+      memset(mem, 0, SUPERPGSIZE);
+      if (mapsuper(pagetable, a, (uint64)mem, PTE_R | PTE_U | xperm) == 0) {
+        a += SUPERPGSIZE - PGSIZE;
+        continue;
+      }
+      superfree(mem); // no room for a superpage here: use pages
+    }
     mem = kalloc();
     if (mem == 0) {
       uvmdealloc(pagetable, a, oldsz);
