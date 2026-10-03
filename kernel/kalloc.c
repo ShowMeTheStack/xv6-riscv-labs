@@ -155,6 +155,15 @@ superfree(void *pa)
   release(&kmem.lock);
 }
 
+// Can chunk c become a superpage? Caller holds kmem.lock.
+static int
+whole(int c)
+{
+  // a split chunk whose 512 pages are all free counts too.
+  return kmem.state[c] == FREE ||
+         (kmem.state[c] == SPLIT && kmem.nfree[c] == SUPERPGSIZE / PGSIZE);
+}
+
 // Allocate one 2-megabyte, 2-megabyte-aligned chunk of
 // physical memory, the highest free one.
 // Returns 0 if no chunk is free.
@@ -166,8 +175,10 @@ superalloc(void)
 
   acquire(&kmem.lock);
   for (c = NCHUNK - 1; c >= 0; c--) {
-    if (kmem.state[c] == FREE) {
+    if (whole(c)) {
       kmem.state[c] = SUPER;
+      kmem.freelist[c] = 0; // its pages are no longer free pages
+      kmem.nfree[c] = 0;
       pa = (char *)(KERNBASE + (uint64)c * SUPERPGSIZE);
       break;
     }
