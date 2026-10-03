@@ -347,7 +347,8 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // Given a parent process's page table, copy
 // its memory into a child's page table.
 // Copies both the page table and the
-// physical memory.
+// physical memory. A superpage is copied into a
+// superpage if one is free, else into 512 pages.
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
@@ -357,14 +358,27 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   uint64 pa, i;
   uint flags;
   char *mem;
+  int level;
 
   for (i = 0; i < sz; i += PGSIZE) {
-    if ((pte = walk(old, i, 0)) == 0)
+    level = 0;
+    if ((pte = walklevel(old, i, 0, &level)) == 0)
       continue; // page table entry hasn't been allocated
     if ((*pte & PTE_V) == 0)
       continue; // physical page hasn't been allocated
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
+    if (level == 1 && (i % SUPERPGSIZE) == 0 && (mem = superalloc()) != 0) {
+      memmove(mem, (char *)pa, SUPERPGSIZE);
+      if (mapsuper(new, i, (uint64)mem, flags) != 0) {
+        superfree(mem);
+        goto err;
+      }
+      i += SUPERPGSIZE - PGSIZE;
+      continue;
+    }
+    if (level == 1) // copy the 4096-byte piece that holds i
+      pa += i - SUPERPGROUNDDOWN(i);
     if ((mem = kalloc()) == 0)
       goto err;
     memmove(mem, (char *)pa, PGSIZE);
