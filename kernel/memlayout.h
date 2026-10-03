@@ -55,9 +55,10 @@
 // Address zero first:
 //   text
 //   original data and bss
-//   fixed-size stack
-//   expandable heap
+//   expandable heap, up to MAXHEAP
 //   ...
+//   guard page
+//   stack, growing down from USTACKTOP, at most USERSTACK pages
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
 #define TRAPFRAME (TRAMPOLINE - PGSIZE)

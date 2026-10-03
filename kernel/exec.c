@@ -83,18 +83,13 @@ kexec(char *path, char **argv)
   p = myproc();
   uint64 oldsz = p->sz;
 
-  // Allocate some pages at the next page boundary.
-  // Make the first inaccessible as a stack guard.
-  // Use the rest as the user stack.
+  // The heap will start at the next page boundary. The stack
+  // starts empty at USTACKTOP: the first copyout() below grows
+  // its first page, and page faults grow it down from there.
+  // The arguments must fit in that first page.
   sz = PGROUNDUP(sz);
-  uint64 sz1;
-  if ((sz1 = uvmalloc(pagetable, sz, sz + (USERSTACK + 1) * PGSIZE, PTE_W)) ==
-      0)
-    goto bad;
-  sz = sz1;
-  uvmclear(pagetable, sz - (USERSTACK + 1) * PGSIZE);
-  sp = sz;
-  stackbase = sp - USERSTACK * PGSIZE;
+  sp = USTACKTOP;
+  stackbase = sp - PGSIZE;
 
   // Copy argument strings into new stack, remember their
   // addresses in ustack[].

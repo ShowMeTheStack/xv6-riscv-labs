@@ -326,19 +326,6 @@ err:
   return -1;
 }
 
-// mark a PTE invalid for user access.
-// used by exec for the user stack guard page.
-void
-uvmclear(pagetable_t pagetable, uint64 va)
-{
-  pte_t *pte;
-
-  pte = walk(pagetable, va, 0);
-  if (pte == 0)
-    panic("uvmclear");
-  *pte &= ~PTE_U;
-}
-
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error.
