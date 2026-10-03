@@ -392,11 +392,21 @@ typedef uint64 *pagetable_t; // 512 PTEs
 #define PGROUNDUP(sz)  (((sz) + PGSIZE - 1) & ~(PGSIZE - 1))
 #define PGROUNDDOWN(a) (((a)) & ~(PGSIZE - 1))
 
+// a superpage (a "megapage" in the RISC-V spec) is mapped by one
+// leaf PTE in a level-1 page-table page: 512 pages, 2 megabytes.
+#define SUPERPGSIZE         (1L << 21)
+#define SUPERPGROUNDUP(sz)  (((sz) + SUPERPGSIZE - 1) & ~(SUPERPGSIZE - 1))
+#define SUPERPGROUNDDOWN(a) (((a)) & ~(SUPERPGSIZE - 1))
+
 #define PTE_V (1L << 0) // valid
 #define PTE_R (1L << 1)
 #define PTE_W (1L << 2)
 #define PTE_X (1L << 3)
 #define PTE_U (1L << 4) // user can access
+
+// a valid PTE with any of R, W, X set is a leaf, at any level;
+// with all three clear it points to the next page-table page.
+#define PTE_LEAF(pte) ((pte) & (PTE_R | PTE_W | PTE_X))
 
 // shift a physical address to the right place for a PTE.
 #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)

@@ -95,15 +95,23 @@ kvminithart()
 //   21..29 -- 9 bits of level-1 index.
 //   12..20 -- 9 bits of level-0 index.
 //    0..11 -- 12 bits of byte offset within the page.
+//
+// On entry *level is the level to walk down to (0 for a
+// 4096-byte page, 1 for a superpage). Like the hardware, the
+// walk stops early at a leaf; *level then says where it stopped.
 pte_t *
-walk(pagetable_t pagetable, uint64 va, int alloc)
+walklevel(pagetable_t pagetable, uint64 va, int alloc, int *level)
 {
+  int stop = *level;
+
   if (va >= MAXVA)
     panic("walk");
 
-  for (int level = 2; level > 0; level--) {
-    pte_t *pte = &pagetable[PX(level, va)];
+  for (*level = 2; *level > stop; (*level)--) {
+    pte_t *pte = &pagetable[PX(*level, va)];
     if (*pte & PTE_V) {
+      if (PTE_LEAF(*pte))
+        return pte; // a superpage: no page-table page below
       pagetable = (pagetable_t)PTE2PA(*pte);
     } else {
       if (!alloc || (pagetable = (pde_t *)kalloc()) == 0)
@@ -112,7 +120,17 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
       *pte = PA2PTE(pagetable) | PTE_V;
     }
   }
-  return &pagetable[PX(0, va)];
+  return &pagetable[PX(stop, va)];
+}
+
+// Return the address of the leaf PTE for va: a level-0 PTE,
+// or a level-1 PTE if va lies in a superpage.
+pte_t *
+walk(pagetable_t pagetable, uint64 va, int alloc)
+{
+  int level = 0;
+
+  return walklevel(pagetable, va, alloc, &level);
 }
 
 // Look up a virtual address, return the physical address,
@@ -123,11 +141,12 @@ walkaddr(pagetable_t pagetable, uint64 va)
 {
   pte_t *pte;
   uint64 pa;
+  int level = 0;
 
   if (va >= MAXVA)
     return 0;
 
-  pte = walk(pagetable, va, 0);
+  pte = walklevel(pagetable, va, 0, &level);
   if (pte == 0)
     return 0;
   if ((*pte & PTE_V) == 0)
@@ -135,6 +154,8 @@ walkaddr(pagetable_t pagetable, uint64 va)
   if ((*pte & PTE_U) == 0)
     return 0;
   pa = PTE2PA(*pte);
+  if (level == 1) // the 4096-byte piece of the superpage that holds va
+    pa += PGROUNDDOWN(va) - SUPERPGROUNDDOWN(va);
   return pa;
 }
 
