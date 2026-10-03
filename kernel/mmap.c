@@ -28,6 +28,20 @@ vmalookup(struct proc *p, uint64 va)
   return 0;
 }
 
+// The lowest address of any mapping of p, or TRAPFRAME if it has
+// none. The heap must stay below it.
+uint64
+vmabottom(struct proc *p)
+{
+  uint64 bottom = TRAPFRAME;
+  struct vma *v;
+
+  for (v = p->vma; v < &p->vma[NVMA]; v++)
+    if (v->len != 0 && v->start < bottom)
+      bottom = v->start;
+  return bottom;
+}
+
 // Choose where a new mapping of len bytes goes: the highest free
 // range below TRAPFRAME, and never below the heap. Returns its
 // start, or 0 if there is no room.

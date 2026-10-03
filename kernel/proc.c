@@ -240,8 +240,8 @@ growproc(int n)
 
   sz = p->sz;
   if (n > 0) {
-    if (sz + n > TRAPFRAME) {
-      return -1;
+    if (sz + n > vmabottom(p)) {
+      return -1; // would run into a mapping, or the trapframe
     }
     if ((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
       return -1;
