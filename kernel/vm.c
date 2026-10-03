@@ -195,6 +195,28 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   return 0;
 }
 
+// Map the 2-megabyte superpage at physical address pa at va
+// with one leaf PTE in a level-1 page-table page. Both must be
+// 2-megabyte aligned. Returns 0 on success, -1 if a level-0
+// page-table page is already in the way or walklevel() couldn't
+// allocate a needed page-table page.
+int
+mapsuper(pagetable_t pagetable, uint64 va, uint64 pa, int perm)
+{
+  pte_t *pte;
+  int level = 1;
+
+  if ((va % SUPERPGSIZE) != 0 || (pa % SUPERPGSIZE) != 0)
+    panic("mapsuper: not aligned");
+
+  if ((pte = walklevel(pagetable, va, 1, &level)) == 0)
+    return -1;
+  if (*pte & PTE_V)
+    return -1;
+  *pte = PA2PTE(pa) | perm | PTE_V;
+  return 0;
+}
+
 // create an empty user page table.
 // returns 0 if out of memory.
 pagetable_t
@@ -210,21 +232,33 @@ uvmcreate()
 
 // Remove npages of mappings starting from va. va must be
 // page-aligned. It's OK if the mappings don't exist.
+// A superpage must be removed whole.
 // Optionally free the physical memory.
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 {
   uint64 a;
   pte_t *pte;
+  int level;
 
   if ((va % PGSIZE) != 0)
     panic("uvmunmap: not aligned");
 
   for (a = va; a < va + npages * PGSIZE; a += PGSIZE) {
-    if ((pte = walk(pagetable, a, 0)) == 0) // leaf page table entry allocated?
+    level = 0;
+    if ((pte = walklevel(pagetable, a, 0, &level)) == 0) // leaf page table entry allocated?
       continue;
     if ((*pte & PTE_V) == 0) // has physical page been allocated?
       continue;
+    if (level == 1) {
+      if ((a % SUPERPGSIZE) != 0 || a + SUPERPGSIZE > va + npages * PGSIZE)
+        panic("uvmunmap: part of a superpage");
+      if (do_free)
+        superfree((void *)PTE2PA(*pte));
+      *pte = 0;
+      a += SUPERPGSIZE - PGSIZE; // skip the rest of it
+      continue;
+    }
     if (do_free) {
       uint64 pa = PTE2PA(*pte);
       kfree((void *)pa);
