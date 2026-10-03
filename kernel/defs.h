@@ -9,6 +9,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct vma;
 
 // bio.c
 void            binit(void);
@@ -66,6 +67,9 @@ void            initlog(int, struct superblock*);
 void            log_write(struct buf*);
 void            begin_op(void);
 void            end_op(void);
+
+// mmap.c
+struct vma*     vmalookup(struct proc*, uint64);
 
 // pipe.c
 int             pipealloc(struct file**, struct file**);
