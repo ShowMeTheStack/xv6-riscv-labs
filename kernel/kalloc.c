@@ -205,3 +205,17 @@ superalloc(void)
     memset(pa, 5, SUPERPGSIZE); // fill with junk
   return (void *)pa;
 }
+
+// How many superpages could superalloc() hand out now?
+int
+nfreesuper(void)
+{
+  int n = 0;
+
+  acquire(&kmem.lock);
+  for (int c = 0; c < NCHUNK; c++)
+    if (whole(c))
+      n++;
+  release(&kmem.lock);
+  return n;
+}

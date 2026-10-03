@@ -110,3 +110,28 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// return the level of the leaf PTE that maps user address va:
+// 0 for a 4096-byte page, 1 for a superpage, -1 if unmapped.
+uint64
+sys_pglevel(void)
+{
+  uint64 va;
+  pte_t *pte;
+  int level = 0;
+
+  argaddr(0, &va);
+  if (va >= MAXVA)
+    return -1;
+  pte = walklevel(myproc()->pagetable, va, 0, &level);
+  if (pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
+    return -1;
+  return level;
+}
+
+// return how many superpages superalloc() could hand out now.
+uint64
+sys_freesuper(void)
+{
+  return nfreesuper();
+}

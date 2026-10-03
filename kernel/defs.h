@@ -63,6 +63,7 @@ void            kinit(void);
 void*           superalloc(void);
 void            superfree(void *);
 void            supersplit(void *);
+int             nfreesuper(void);
 
 // log.c
 void            initlog(int, struct superblock*);
