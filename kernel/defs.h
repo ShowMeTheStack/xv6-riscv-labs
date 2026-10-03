@@ -71,6 +71,7 @@ void            end_op(void);
 // mmap.c
 struct vma*     vmalookup(struct proc*, uint64);
 uint64          vmabottom(struct proc*);
+uint64          mmapfault(struct proc*, struct vma*, uint64, int);
 
 // pipe.c
 int             pipealloc(struct file**, struct file**);

@@ -64,6 +64,53 @@ vmaplace(struct proc *p, uint64 len)
   }
 }
 
+// Load the page at va of mapping v from the file and map it.
+// Called by vmfault. Locks the file's inode and may wait for the
+// disk, so the caller must hold no spinlock, and must not hold
+// that inode's lock. Returns the page's physical address, or 0 if
+// the access is not allowed, the page is already mapped, or
+// memory is short.
+uint64
+mmapfault(struct proc *p, struct vma *v, uint64 va, int read)
+{
+  struct inode *ip = v->f->ip;
+  uint64 off;
+  uint n;
+  char *mem;
+  int perm = PTE_R | PTE_U;
+
+  if (!read && (v->prot & PROT_WRITE) == 0)
+    return 0; // a store to a read-only mapping
+  va = PGROUNDDOWN(va);
+  if (ismapped(p->pagetable, va))
+    return 0; // mapped, so the fault was about permissions
+
+  if ((mem = kalloc()) == 0)
+    return 0;
+  memset(mem, 0, PGSIZE); // past the end of the file: zeros
+  off = v->off + (va - v->start);
+  ilock(ip);
+  if (off < ip->size) {
+    n = PGSIZE;
+    if (ip->size - off < PGSIZE)
+      n = ip->size - off;
+    if (readi(ip, 0, (uint64)mem, off, n) != n) {
+      iunlock(ip);
+      kfree(mem);
+      return 0;
+    }
+  }
+  iunlock(ip);
+
+  if (v->prot & PROT_WRITE)
+    perm |= PTE_W;
+  if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, perm) != 0) {
+    kfree(mem);
+    return 0;
+  }
+  return (uint64)mem;
+}
+
 // void *mmap(void *addr, uint64 len, int prot, int flags, int fd,
 //            uint64 off)
 // addr must be 0: the kernel chooses the address.
