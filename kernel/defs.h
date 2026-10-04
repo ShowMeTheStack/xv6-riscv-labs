@@ -74,6 +74,7 @@ uint64          vmabottom(struct proc*);
 uint64          mmapfault(struct proc*, struct vma*, uint64, int);
 void            vmaunmap(pagetable_t, struct vma*, uint64, uint64);
 void            vmaunmapall(struct proc*, pagetable_t);
+int             vmaprefault(struct proc*, uint64, uint64);
 
 // pipe.c
 int             pipealloc(struct file**, struct file**);

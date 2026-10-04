@@ -111,6 +111,31 @@ mmapfault(struct proc *p, struct vma *v, uint64 va, int read)
   return (uint64)mem;
 }
 
+// Load the pages of p's mappings in [va, va+n) that are not loaded
+// yet. A system call that copies to or from user memory while it
+// holds locks calls this first, holding none: loading a mapped page
+// sleeps, and locks the mapped file's inode. Returns -1 if a page
+// can't be loaded.
+int
+vmaprefault(struct proc *p, uint64 va, uint64 n)
+{
+  uint64 a, lo, hi;
+  struct vma *v;
+
+  if (va + n < va)
+    return -1;
+  for (v = p->vma; v < &p->vma[NVMA]; v++) {
+    if (v->len == 0)
+      continue;
+    lo = PGROUNDDOWN(va) > v->start ? PGROUNDDOWN(va) : v->start;
+    hi = va + n < v->start + v->len ? va + n : v->start + v->len;
+    for (a = lo; a < hi; a += PGSIZE)
+      if (!ismapped(p->pagetable, a) && mmapfault(p, v, a, 1) == 0)
+        return -1;
+  }
+  return 0;
+}
+
 // void *mmap(void *addr, uint64 len, int prot, int flags, int fd,
 //            uint64 off)
 // addr must be 0: the kernel chooses the address.
