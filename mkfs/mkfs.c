@@ -24,6 +24,7 @@
 
 // Disk layout:
 // [ boot block | sb block | log | inode blocks | free bit map | data blocks ]
+// followed by the swap area, NSWAP pages that the file system never uses.
 
 int nbitmap = FSSIZE / BPB + 1;
 int ninodeblocks = NINODES / IPB + 1;
@@ -113,6 +114,11 @@ main(int argc, char *argv[])
 
   for (i = 0; i < FSSIZE; i++)
     wsect(i, zeroes);
+
+  // make room for the swap area after the file system: NSWAP
+  // slots of one page (4096 bytes) each. sb.size stays FSSIZE,
+  // so the file system never allocates these blocks.
+  wsect(SWAPSTART + NSWAP * (4096 / BSIZE) - 1, zeroes);
 
   memset(buf, 0, sizeof(buf));
   memmove(buf, &sb, sizeof(sb));
