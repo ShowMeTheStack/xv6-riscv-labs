@@ -206,6 +206,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       continue;
     if (do_free) {
       uint64 pa = PTE2PA(*pte);
+      ftclear((void *)pa);
       kfree((void *)pa);
     }
     *pte = 0;
@@ -237,6 +238,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
       uvmdealloc(pagetable, a, oldsz);
       return 0;
     }
+    ftset(mem, myproc(), a);
   }
   return newsz;
 }
@@ -292,11 +294,11 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // Given a parent process's page table, copy
 // its memory into a child's page table.
 // Copies both the page table and the
-// physical memory.
+// physical memory. np is the child, for the frame table.
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+uvmcopy(pagetable_t old, pagetable_t new, uint64 sz, struct proc *np)
 {
   pte_t *pte;
   uint64 pa, i;
@@ -317,6 +319,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       kfree(mem);
       goto err;
     }
+    ftset(mem, np, i);
   }
   return 0;
 
@@ -474,6 +477,7 @@ vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
     kfree((void *)mem);
     return 0;
   }
+  ftset((void *)mem, myproc(), va);
   return mem;
 }
 

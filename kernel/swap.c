@@ -23,10 +23,45 @@ struct {
   int nused;        // slots with ref > 0
 } slots;
 
+// the frame table: for every physical page that is mapped as a
+// user page, the process and the virtual address that map it.
+// eviction needs this reverse map to find the PTE of a page.
+#define NFRAME     ((PHYSTOP - KERNBASE) / PGSIZE)
+#define FRAME(pa)  (((uint64)(pa) - KERNBASE) / PGSIZE)
+#define FRAMEPA(i) (KERNBASE + (uint64)(i) * PGSIZE)
+
+struct {
+  struct spinlock lock;
+  struct frame {
+    struct proc *proc; // 0 if not a user page
+    uint64 va;
+  } f[NFRAME];
+} ft;
+
 void
 swapinit(void)
 {
   initlock(&slots.lock, "slots");
+  initlock(&ft.lock, "ftable");
+}
+
+// record that p maps the user page pa at va.
+void
+ftset(void *pa, struct proc *p, uint64 va)
+{
+  acquire(&ft.lock);
+  ft.f[FRAME(pa)].proc = p;
+  ft.f[FRAME(pa)].va = va;
+  release(&ft.lock);
+}
+
+// pa is no longer mapped as a user page.
+void
+ftclear(void *pa)
+{
+  acquire(&ft.lock);
+  ft.f[FRAME(pa)].proc = 0;
+  release(&ft.lock);
 }
 
 // allocate a free slot. returns -1 if the swap area is full.
