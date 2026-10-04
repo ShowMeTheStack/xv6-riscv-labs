@@ -363,6 +363,9 @@ copyout(pagetable_t pagetable, uint64 psz, uint64 dstva, char *src, uint64 len)
     // forbid copyout over read-only user text pages.
     if ((*pte & PTE_W) == 0)
       return -1;
+    // the copy goes through the kernel's own mapping of the page,
+    // so the hardware won't set D in the user PTE: set it here.
+    *pte |= PTE_D;
 
     n = PGSIZE - (dstva - va0);
     if (n > len)

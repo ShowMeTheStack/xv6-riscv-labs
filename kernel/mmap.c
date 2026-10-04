@@ -162,14 +162,49 @@ sys_mmap(void)
   return start;
 }
 
+// Write the page at va of shared mapping v, whose contents are at
+// physical address pa, back to the file. Only the part inside the
+// file is written: a mapping never makes its file longer.
+static void
+vmawrite(struct vma *v, uint64 va, uint64 pa)
+{
+  struct inode *ip = v->f->ip;
+  uint64 off = v->off + (va - v->start);
+  uint n;
+
+  // one page is 4 blocks, all already in the file, plus the
+  // inode: 5 log blocks, within the MAXOPBLOCKS of one transaction.
+  begin_op();
+  ilock(ip);
+  if (off < ip->size) {
+    n = PGSIZE;
+    if (ip->size - off < PGSIZE)
+      n = ip->size - off;
+    writei(ip, 0, pa, off, n);
+  }
+  iunlock(ip);
+  end_op();
+}
+
 // Remove [addr, addr+len) from mapping v, in the address space of
-// pagetable: free its loaded pages and shrink the record. addr and
-// len are page-aligned, and the range is the whole of v, or a part
-// of it that starts at its start or ends at its end. The last page
-// gone drops the mapping's reference to the file.
+// pagetable: write back the dirty pages of a shared mapping, free
+// the loaded pages and shrink the record. addr and len are
+// page-aligned, and the range is the whole of v, or a part of it
+// that starts at its start or ends at its end. The last page gone
+// drops the mapping's reference to the file.
 void
 vmaunmap(pagetable_t pagetable, struct vma *v, uint64 addr, uint64 len)
 {
+  uint64 a;
+  pte_t *pte;
+
+  if (v->flags == MAP_SHARED && (v->prot & PROT_WRITE)) {
+    for (a = addr; a < addr + len; a += PGSIZE) {
+      pte = walk(pagetable, a, 0);
+      if (pte && (*pte & PTE_V) && (*pte & PTE_D))
+        vmawrite(v, a, PTE2PA(*pte)); // written since it was loaded
+    }
+  }
   uvmunmap(pagetable, addr, len / PGSIZE, 1);
   if (addr == v->start) {
     v->start += len;
