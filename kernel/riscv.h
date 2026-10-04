@@ -397,6 +397,7 @@ typedef uint64 *pagetable_t; // 512 PTEs
 #define PTE_W (1L << 2)
 #define PTE_X (1L << 3)
 #define PTE_U (1L << 4) // user can access
+#define PTE_A (1L << 6) // accessed: set by the hardware (menvcfg.ADUE)
 
 // a PTE with V clear is ignored by the hardware, so its other bits
 // are free for the kernel. PTE_SWAP (bit 8, an RSW bit) marks a page

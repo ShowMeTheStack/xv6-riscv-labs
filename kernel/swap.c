@@ -44,6 +44,7 @@ struct {
     struct proc *proc; // 0 if not a user page
     uint64 va;
   } f[NFRAME];
+  int hand; // the clock hand: next frame to look at
 } ft;
 
 void
@@ -122,6 +123,87 @@ swaprw(int s, void *pa, int write)
   if (!holdingsleep(&swapio.lock))
     panic("swaprw");
   virtio_disk_rwpage(&swapio.b, SLOTBLOCK(s), pa, write);
+}
+
+// go round the frame table, clock-wise, for a user page to evict.
+// a page whose PTE has A set was used since the hand last passed:
+// clear A and give it a second chance. only pages of a process
+// that is not running on any hart (it flushed its TLB when it
+// entered the kernel) or of the caller itself are taken, and
+// never a pinned page. on success the PTE says "in slot s" and
+// the page is the caller's to write out and free.
+static void *
+clock(int s)
+{
+  struct proc *me = myproc();
+  struct proc *p;
+  pte_t *pte;
+  uint64 va;
+  int i;
+
+  for (int n = 0; n < 2 * NFRAME; n++) {
+    acquire(&ft.lock);
+    i = ft.hand;
+    ft.hand = (ft.hand + 1) % NFRAME;
+    p = ft.f[i].proc;
+    va = ft.f[i].va;
+    release(&ft.lock);
+    if (p == 0)
+      continue;
+
+    // p->lock before ft.lock: freeproc frees pages holding p->lock.
+    acquire(&p->lock);
+    if (p->state == SLEEPING || p->state == RUNNABLE || p == me) {
+      acquire(&ft.lock);
+      pte = 0;
+      if (ft.f[i].proc == p && ft.f[i].va == va)
+        pte = walk(p->pagetable, va, 0);
+      // during exec the frame may be in the new page table, not
+      // in p->pagetable yet: then the PTE maps another page. the
+      // stack guard page (no PTE_U) is never used: not worth a write.
+      if (pte && (*pte & PTE_V) && (*pte & PTE_U) &&
+          PTE2PA(*pte) == FRAMEPA(i) && !(*pte & PTE_PIN)) {
+        if (*pte & PTE_A) {
+          *pte &= ~PTE_A; // second chance
+        } else {
+          *pte = SLOT2PTE(s) | (*pte & (PTE_R | PTE_W | PTE_X | PTE_U)) |
+                 PTE_SWAP;
+          ft.f[i].proc = 0;
+          release(&ft.lock);
+          release(&p->lock);
+          return (void *)FRAMEPA(i);
+        }
+      }
+      release(&ft.lock);
+    }
+    release(&p->lock);
+  }
+  return 0;
+}
+
+// write one user page out to swap and free it. returns 0 if the
+// swap area is full or no page can be evicted. sleeps, so the
+// caller must not hold a spinlock.
+int
+evict(void)
+{
+  void *pa;
+  int s;
+
+  acquiresleep(&swapio.lock);
+  if ((s = swapalloc()) < 0) {
+    releasesleep(&swapio.lock);
+    return 0;
+  }
+  if ((pa = clock(s)) == 0) {
+    swapfree(s);
+    releasesleep(&swapio.lock);
+    return 0;
+  }
+  swaprw(s, pa, 1);
+  releasesleep(&swapio.lock);
+  kfree(pa);
+  return 1;
 }
 
 // the page at va is in swap: read it into a fresh page and map
