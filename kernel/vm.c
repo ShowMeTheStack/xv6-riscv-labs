@@ -202,6 +202,12 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   for (a = va; a < va + npages * PGSIZE; a += PGSIZE) {
     if ((pte = walk(pagetable, a, 0)) == 0) // leaf page table entry allocated?
       continue;
+    if (*pte & PTE_SWAP) { // the page is in swap, not in memory
+      if (do_free)
+        swapfree(PTE2SLOT(*pte));
+      *pte = 0;
+      continue;
+    }
     if ((*pte & PTE_V) == 0) // has physical page been allocated?
       continue;
     if (do_free) {
@@ -300,7 +306,7 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz, struct proc *np)
 {
-  pte_t *pte;
+  pte_t *pte, *npte;
   uint64 pa, i;
   uint flags;
   char *mem;
@@ -308,6 +314,15 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz, struct proc *np)
   for (i = 0; i < sz; i += PGSIZE) {
     if ((pte = walk(old, i, 0)) == 0)
       continue; // page table entry hasn't been allocated
+    if (*pte & PTE_SWAP) {
+      // the child shares the slot; each process will read
+      // its own copy in when it uses the page.
+      if ((npte = walk(new, i, 1)) == 0)
+        goto err;
+      *npte = *pte;
+      swapdup(PTE2SLOT(*pte));
+      continue;
+    }
     if ((*pte & PTE_V) == 0)
       continue; // physical page hasn't been allocated
     pa = PTE2PA(*pte);

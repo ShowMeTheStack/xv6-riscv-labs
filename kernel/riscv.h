@@ -398,6 +398,14 @@ typedef uint64 *pagetable_t; // 512 PTEs
 #define PTE_X (1L << 3)
 #define PTE_U (1L << 4) // user can access
 
+// a PTE with V clear is ignored by the hardware, so its other bits
+// are free for the kernel. PTE_SWAP (bit 8, an RSW bit) marks a page
+// that is out in swap; the slot number sits where the PPN would be,
+// and R, W, X and U keep the permissions it will get back.
+#define PTE_SWAP      (1L << 8)
+#define SLOT2PTE(s)   (((uint64)(s)) << 10)
+#define PTE2SLOT(pte) ((int)((pte) >> 10))
+
 // shift a physical address to the right place for a PTE.
 #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
 
