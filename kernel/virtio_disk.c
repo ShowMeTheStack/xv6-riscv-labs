@@ -212,11 +212,11 @@ alloc3_desc(int *idx)
   return 0;
 }
 
-void
-virtio_disk_rw(struct buf *b, int write)
+// transfer len bytes between data and the disk, starting at
+// sector. the caller sleeps on b until the transfer is done.
+static void
+disk_rw(struct buf *b, uint64 sector, char *data, uint len, int write)
 {
-  uint64 sector = b->blockno * (BSIZE / 512);
-
   acquire(&disk.vdisk_lock);
 
   // the spec's Section 5.2 says that legacy block operations use
@@ -252,8 +252,8 @@ virtio_disk_rw(struct buf *b, int write)
   disk.desc[idx[0]].flags = VRING_DESC_F_NEXT;
   disk.desc[idx[0]].next = idx[1];
 
-  disk.desc[idx[1]].addr = (uint64)b->data;
-  disk.desc[idx[1]].len = BSIZE;
+  disk.desc[idx[1]].addr = (uint64)data;
+  disk.desc[idx[1]].len = len;
   if (write)
     disk.desc[idx[1]].flags = 0; // device reads b->data
   else
@@ -295,6 +295,21 @@ virtio_disk_rw(struct buf *b, int write)
   free_chain(idx[0]);
 
   release(&disk.vdisk_lock);
+}
+
+void
+virtio_disk_rw(struct buf *b, int write)
+{
+  disk_rw(b, b->blockno * (BSIZE / 512), (char *)b->data, BSIZE, write);
+}
+
+// read or write the page at physical address pa, as PGSIZE / BSIZE
+// blocks starting at blockno, in one request. used for swapping;
+// b only serves to wait for the request (b->data is not used).
+void
+virtio_disk_rwpage(struct buf *b, uint blockno, void *pa, int write)
+{
+  disk_rw(b, (uint64)blockno * (BSIZE / 512), (char *)pa, PGSIZE, write);
 }
 
 void
