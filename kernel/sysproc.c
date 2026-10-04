@@ -32,8 +32,16 @@ uint64
 sys_wait(void)
 {
   uint64 p;
+  int r;
+
   argaddr(0, &p);
-  return kwait(p);
+  // kwait copies the status out holding spinlocks.
+  if (p != 0 && uvmpin(p, sizeof(int)) < 0)
+    return -1;
+  r = kwait(p);
+  if (p != 0)
+    uvmunpin(p, sizeof(int));
+  return r;
 }
 
 uint64

@@ -483,6 +483,55 @@ copyinstr(pagetable_t pagetable, uint64 psz, char *dst, uint64 srcva,
   }
 }
 
+// piperead, pipewrite, consoleread and kwait copy to or from user
+// memory while holding a spinlock, and so cannot wait for a page to
+// come back from swap. bring every page of [va, va+n) that is in
+// swap back in, and pin every page that is in memory: eviction
+// leaves a page with PTE_PIN alone. pages that do not exist yet
+// (lazy), or that the user may not access, are left alone: the copy
+// treats them exactly as before. returns -1 if a page cannot be
+// brought back (out of memory).
+int
+uvmpin(uint64 va, uint64 n)
+{
+  struct proc *p = myproc();
+  uint64 a = PGROUNDDOWN(va);
+  pte_t *pte;
+
+  while (a < va + n && a < p->sz) {
+    push_off(); // as in copyout: no eviction between check and pin
+    pte = walk(p->pagetable, a, 0);
+    if (pte && (*pte & PTE_SWAP)) {
+      pop_off();
+      // may sleep, and may evict our own pages, but not pinned ones.
+      if (vmfault(p->pagetable, p->sz, a, 1) == 0) {
+        uvmunpin(va, n);
+        return -1;
+      }
+      continue; // check the page again
+    }
+    if (pte && (*pte & PTE_V) && (*pte & PTE_U))
+      *pte |= PTE_PIN;
+    pop_off();
+    a += PGSIZE;
+  }
+  return 0;
+}
+
+// undo uvmpin(va, n).
+void
+uvmunpin(uint64 va, uint64 n)
+{
+  struct proc *p = myproc();
+  uint64 a;
+  pte_t *pte;
+
+  for (a = PGROUNDDOWN(va); a < va + n && a < p->sz; a += PGSIZE) {
+    if ((pte = walk(p->pagetable, a, 0)) != 0 && (*pte & PTE_V))
+      *pte &= ~PTE_PIN;
+  }
+}
+
 // allocate and map user memory if process is referencing a page
 // that was lazily allocated in sys_sbrk(), or bring the page
 // back from swap.

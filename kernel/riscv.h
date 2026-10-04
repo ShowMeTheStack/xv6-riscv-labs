@@ -406,6 +406,10 @@ typedef uint64 *pagetable_t; // 512 PTEs
 #define SLOT2PTE(s)   (((uint64)(s)) << 10)
 #define PTE2SLOT(pte) ((int)((pte) >> 10))
 
+// on a valid PTE: the kernel is about to copy to or from this page
+// holding a spinlock, so it must stay in memory. bit 9, an RSW bit.
+#define PTE_PIN (1L << 9)
+
 // shift a physical address to the right place for a PTE.
 #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
 
