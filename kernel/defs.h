@@ -107,6 +107,12 @@ void            procdump(void);
 // swtch.S
 void            swtch(struct context*, struct context*);
 
+// swap.c
+void            swapinit(void);
+int             swapalloc(void);
+void            swapdup(int);
+void            swapfree(int);
+
 // spinlock.c
 void            acquire(struct spinlock*);
 int             holding(struct spinlock*);
