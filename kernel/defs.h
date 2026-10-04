@@ -114,6 +114,7 @@ void            swapdup(int);
 void            swapfree(int);
 void            ftset(void *, struct proc *, uint64);
 void            ftclear(void *);
+uint64          swapin(pagetable_t, uint64);
 
 // spinlock.c
 void            acquire(struct spinlock*);

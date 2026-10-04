@@ -23,6 +23,14 @@ struct {
   int nused;        // slots with ref > 0
 } slots;
 
+// swap I/O moves one page at a time. holding swapio.lock also
+// keeps a page from being read back in while it is still being
+// written out.
+struct {
+  struct sleeplock lock;
+  struct buf b; // only used to wait for the disk; b.data is unused
+} swapio;
+
 // the frame table: for every physical page that is mapped as a
 // user page, the process and the virtual address that map it.
 // eviction needs this reverse map to find the PTE of a page.
@@ -43,6 +51,7 @@ swapinit(void)
 {
   initlock(&slots.lock, "slots");
   initlock(&ft.lock, "ftable");
+  initsleeplock(&swapio.lock, "swapio");
 }
 
 // record that p maps the user page pa at va.
@@ -102,4 +111,40 @@ swapfree(int s)
   if (--slots.ref[s] == 0)
     slots.nused--;
   release(&slots.lock);
+}
+
+// copy the page at physical address pa to slot s (write = 1),
+// or slot s to pa (write = 0). sleeps until the disk is done.
+// the caller holds swapio.lock.
+static void
+swaprw(int s, void *pa, int write)
+{
+  if (!holdingsleep(&swapio.lock))
+    panic("swaprw");
+  virtio_disk_rwpage(&swapio.b, SLOTBLOCK(s), pa, write);
+}
+
+// the page at va is in swap: read it into a fresh page and map
+// it again. returns the physical address, or 0 if out of memory.
+// sleeps, so the caller must not hold a spinlock.
+uint64
+swapin(pagetable_t pagetable, uint64 va)
+{
+  pte_t *pte;
+  char *mem;
+  int s;
+
+  if ((mem = kalloc()) == 0)
+    return 0;
+  pte = walk(pagetable, va, 0);
+  s = PTE2SLOT(*pte);
+
+  acquiresleep(&swapio.lock);
+  swaprw(s, mem, 0);
+  releasesleep(&swapio.lock);
+
+  *pte = PA2PTE(mem) | (*pte & (PTE_R | PTE_W | PTE_X | PTE_U)) | PTE_V;
+  ftset(mem, myproc(), va);
+  swapfree(s);
+  return (uint64)mem;
 }
