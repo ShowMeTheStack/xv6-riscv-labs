@@ -370,22 +370,30 @@ copyout(pagetable_t pagetable, uint64 psz, uint64 dstva, char *src, uint64 len)
     if (va0 >= MAXVA)
       return -1;
 
+    // with interrupts off this process keeps running on this
+    // hart, so no other hart can evict the page while we use pa0.
+    push_off();
     pa0 = walkaddr(pagetable, va0);
     if (pa0 == 0) {
-      if ((pa0 = vmfault(pagetable, psz, va0, 0)) == 0) {
+      pop_off();
+      // lazy or swapped out: vmfault may sleep.
+      if (vmfault(pagetable, psz, va0, 0) == 0)
         return -1;
-      }
+      continue; // translate again, with interrupts off
     }
 
     pte = walk(pagetable, va0, 0);
     // forbid copyout over read-only user text pages.
-    if ((*pte & PTE_W) == 0)
+    if ((*pte & PTE_W) == 0) {
+      pop_off();
       return -1;
+    }
 
     n = PGSIZE - (dstva - va0);
     if (n > len)
       n = len;
     memmove((void *)(pa0 + (dstva - va0)), src, n);
+    pop_off();
 
     len -= n;
     src += n;
@@ -404,16 +412,19 @@ copyin(pagetable_t pagetable, uint64 psz, char *dst, uint64 srcva, uint64 len)
 
   while (len > 0) {
     va0 = PGROUNDDOWN(srcva);
+    push_off(); // as in copyout
     pa0 = walkaddr(pagetable, va0);
     if (pa0 == 0) {
-      if ((pa0 = vmfault(pagetable, psz, va0, 1)) == 0) {
+      pop_off();
+      if (vmfault(pagetable, psz, va0, 1) == 0)
         return -1;
-      }
+      continue;
     }
     n = PGSIZE - (srcva - va0);
     if (n > len)
       n = len;
     memmove(dst, (void *)(pa0 + (srcva - va0)), n);
+    pop_off();
 
     len -= n;
     dst += n;
@@ -435,11 +446,13 @@ copyinstr(pagetable_t pagetable, uint64 psz, char *dst, uint64 srcva,
 
   while (got_null == 0 && max > 0) {
     va0 = PGROUNDDOWN(srcva);
+    push_off(); // as in copyout
     pa0 = walkaddr(pagetable, va0);
     if (pa0 == 0) {
-      if ((pa0 = vmfault(pagetable, psz, va0, 1)) == 0) {
+      pop_off();
+      if (vmfault(pagetable, psz, va0, 1) == 0)
         return -1;
-      }
+      continue;
     }
     n = PGSIZE - (srcva - va0);
     if (n > max)
@@ -459,6 +472,7 @@ copyinstr(pagetable_t pagetable, uint64 psz, char *dst, uint64 srcva,
       p++;
       dst++;
     }
+    pop_off();
 
     srcva = va0 + PGSIZE;
   }
