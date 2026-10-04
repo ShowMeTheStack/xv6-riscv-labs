@@ -182,6 +182,19 @@ vmaunmap(pagetable_t pagetable, struct vma *v, uint64 addr, uint64 len)
   }
 }
 
+// Remove all of p's mappings from pagetable: at exit, and in exec
+// for the old image. Their pages lie above p->sz, where uvmfree
+// does not look, and freewalk panics on any page still mapped.
+void
+vmaunmapall(struct proc *p, pagetable_t pagetable)
+{
+  struct vma *v;
+
+  for (v = p->vma; v < &p->vma[NVMA]; v++)
+    if (v->len != 0)
+      vmaunmap(pagetable, v, v->start, v->len);
+}
+
 // int munmap(void *addr, uint64 len)
 // Unmaps a whole mapping, or a part at its start or at its end.
 uint64

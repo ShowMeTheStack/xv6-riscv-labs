@@ -330,6 +330,9 @@ kexit(int status)
   if (p == initproc)
     panic("init exiting");
 
+  // Unmap all mapped files.
+  vmaunmapall(p, p->pagetable);
+
   // Close all open files.
   for (int fd = 0; fd < NOFILE; fd++) {
     if (p->ofile[fd]) {
