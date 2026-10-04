@@ -161,3 +161,47 @@ sys_mmap(void)
   v->off = off;
   return start;
 }
+
+// Remove [addr, addr+len) from mapping v, in the address space of
+// pagetable: free its loaded pages and shrink the record. addr and
+// len are page-aligned, and the range is the whole of v, or a part
+// of it that starts at its start or ends at its end. The last page
+// gone drops the mapping's reference to the file.
+void
+vmaunmap(pagetable_t pagetable, struct vma *v, uint64 addr, uint64 len)
+{
+  uvmunmap(pagetable, addr, len / PGSIZE, 1);
+  if (addr == v->start) {
+    v->start += len;
+    v->off += len;
+  }
+  v->len -= len;
+  if (v->len == 0) {
+    fileclose(v->f);
+    v->f = 0;
+  }
+}
+
+// int munmap(void *addr, uint64 len)
+// Unmaps a whole mapping, or a part at its start or at its end.
+uint64
+sys_munmap(void)
+{
+  uint64 addr, len;
+  struct proc *p = myproc();
+  struct vma *v;
+
+  argaddr(0, &addr);
+  argaddr(1, &len);
+  if (addr % PGSIZE != 0 || len == 0 || len > TRAPFRAME)
+    return -1;
+  len = PGROUNDUP(len);
+  if ((v = vmalookup(p, addr)) == 0)
+    return -1;
+  if (addr + len > v->start + v->len)
+    return -1; // runs past the end of the mapping
+  if (addr != v->start && addr + len != v->start + v->len)
+    return -1; // would leave a hole in the middle
+  vmaunmap(p->pagetable, v, addr, len);
+  return 0;
+}
