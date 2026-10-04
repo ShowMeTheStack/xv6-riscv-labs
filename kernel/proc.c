@@ -287,6 +287,14 @@ kfork(void)
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
 
+  // the child has the same mappings, with its own file references.
+  // uvmcopy copied no mapped page (they lie above sz): the child
+  // reads each page from the file when it first touches it.
+  memmove(np->vma, p->vma, sizeof(p->vma));
+  for (i = 0; i < NVMA; i++)
+    if (np->vma[i].len != 0)
+      filedup(np->vma[i].f);
+
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
