@@ -140,6 +140,14 @@ found:
     return 0;
   }
 
+  // A kernel page table, with no user pages yet.
+  p->kpagetable = kvmcreate();
+  if (p->kpagetable == 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -161,6 +169,9 @@ freeproc(struct proc *p)
   if (p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
+  if (p->kpagetable)
+    kvmfree(p->kpagetable);
+  p->kpagetable = 0;
   p->sz = 0;
   p->pid = 0;
   p->name[0] = 0;
@@ -450,7 +461,12 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        kvmswitch(p->kpagetable);
         swtch(&c->context, &p->context);
+
+        // back to the kernel's own page table: p's may be
+        // freed once p->lock is released.
+        kvminithart();
 
         // Don't re-enable interrupts on release.
         mycpu()->intena = 0;

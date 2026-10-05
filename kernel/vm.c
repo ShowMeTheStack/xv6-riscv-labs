@@ -83,6 +83,54 @@ kvminithart()
   sfence_vma();
 }
 
+// Make a kernel page table for one process. It shares the
+// kernel's page-table pages for everything above the first
+// gigabyte. The first gigabyte holds the devices and, later,
+// the process's user pages below USERTOP, so it gets a private
+// level-1 page that starts as a copy of the kernel's.
+// returns 0 if out of memory.
+pagetable_t
+kvmcreate(void)
+{
+  pagetable_t kpt, l1;
+
+  if ((kpt = (pagetable_t)kalloc()) == 0)
+    return 0;
+  if ((l1 = (pagetable_t)kalloc()) == 0) {
+    kfree(kpt);
+    return 0;
+  }
+  memmove(kpt, kernel_pagetable, PGSIZE);
+  memmove(l1, (void *)PTE2PA(kernel_pagetable[0]), PGSIZE);
+  kpt[0] = PA2PTE(l1) | PTE_V;
+  return kpt;
+}
+
+// Free a process's kernel page table: the private level-1 page
+// and the level-0 pages under it below USERTOP. The user pages
+// belong to the user page table, and the rest to the kernel.
+void
+kvmfree(pagetable_t kpt)
+{
+  pagetable_t l1 = (pagetable_t)PTE2PA(kpt[0]);
+
+  for (int i = 0; i < PX(1, USERTOP); i++) {
+    if (l1[i] & PTE_V)
+      kfree((void *)PTE2PA(l1[i]));
+  }
+  kfree(l1);
+  kfree(kpt);
+}
+
+// Switch this hart to page table kpt and flush its TLB.
+void
+kvmswitch(pagetable_t kpt)
+{
+  sfence_vma();
+  w_satp(MAKE_SATP(kpt));
+  sfence_vma();
+}
+
 // Return the address of the PTE in page table pagetable
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page-table pages.
