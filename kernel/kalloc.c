@@ -35,6 +35,8 @@ kinit()
     kmem[i].name[4] += i;
     initlock(&kmem[i].lock, kmem[i].name);
   }
+  // kinit runs on the boot CPU, so kfree puts every page on
+  // that CPU's list; the others take from it when they need to.
   freerange(end, (void *)PHYSTOP);
 }
 
@@ -55,6 +57,7 @@ void
 kfree(void *pa)
 {
   struct run *r;
+  int id;
 
   if (((uint64)pa % PGSIZE) != 0 || (char *)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
@@ -64,11 +67,16 @@ kfree(void *pa)
 
   r = (struct run *)pa;
 
-  // for now every CPU uses list 0.
-  acquire(&kmem[0].lock);
-  r->next = kmem[0].freelist;
-  kmem[0].freelist = r;
-  release(&kmem[0].lock);
+  // put the page on this CPU's list. interrupts stay off
+  // from cpuid() to release, so the thread cannot move to
+  // another CPU in between.
+  push_off();
+  id = cpuid();
+  acquire(&kmem[id].lock);
+  r->next = kmem[id].freelist;
+  kmem[id].freelist = r;
+  release(&kmem[id].lock);
+  pop_off();
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -77,13 +85,22 @@ kfree(void *pa)
 void *
 kalloc(void)
 {
-  struct run *r;
+  struct run *r = 0;
+  int id;
 
-  acquire(&kmem[0].lock);
-  r = kmem[0].freelist;
-  if (r)
-    kmem[0].freelist = r->next;
-  release(&kmem[0].lock);
+  push_off();
+  id = cpuid();
+  // this CPU's list first, then the other CPUs' lists.
+  // only one kmem lock is held at a time.
+  for (int i = 0; i < NCPU && r == 0; i++) {
+    struct kmem *km = &kmem[(id + i) % NCPU];
+    acquire(&km->lock);
+    r = km->freelist;
+    if (r)
+      km->freelist = r->next;
+    release(&km->lock);
+  }
+  pop_off();
 
   if (r)
     memset((char *)r, 5, PGSIZE); // fill with junk
