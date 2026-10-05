@@ -2620,7 +2620,9 @@ badarg(char *s)
   exit(0);
 }
 
-#define REGION_SZ (1024 * 1024 * 1024)
+// user memory ends at USERTOP (192 MB, the PLIC's address);
+// 176 MB still reserves more than all of RAM.
+#define REGION_SZ (176 * 1024 * 1024)
 
 // Touch a page every 64 pages, which with lazy allocation
 // causes one page to be allocated.
@@ -2778,19 +2780,10 @@ lazy_copyinstr(char *s)
 void
 lazy_sbrk(char *s)
 {
-  // sbrk() takes just int, so take 2^30-sized steps towards MAXVA
+  // grow to one page below USERTOP; less than 2^31, so one
+  // sbrk() call's int argument is enough.
   char *p = sbrk(0);
-  while ((uint64)p < MAXVA - (1 << 30)) {
-    p = sbrklazy(1 << 30);
-    if (p < 0) {
-      printf("sbrklazy(%d) returned %p\n", 1 << 30, p);
-      exit(1);
-    }
-
-    p = sbrklazy(0);
-  }
-
-  int n = TRAPFRAME - PGSIZE - (uint64)p;
+  int n = USERTOP - PGSIZE - (uint64)p;
 
   char *p1 = sbrklazy(n);
   if (p1 < 0 || p1 != p) {
@@ -2799,8 +2792,8 @@ lazy_sbrk(char *s)
   }
 
   p = sbrk(PGSIZE);
-  if (p < 0 || (uint64)p != TRAPFRAME - PGSIZE) {
-    printf("sbrk(%d) returned %p, not expected TRAPFRAME-PGSIZE\n", PGSIZE, p);
+  if (p < 0 || (uint64)p != USERTOP - PGSIZE) {
+    printf("sbrk(%d) returned %p, not expected USERTOP-PGSIZE\n", PGSIZE, p);
     exit(1);
   }
 

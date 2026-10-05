@@ -57,7 +57,12 @@
 //   original data and bss
 //   fixed-size stack
 //   expandable heap
-//   ...
+//   ... up to USERTOP
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
 #define TRAPFRAME (TRAMPOLINE - PGSIZE)
+
+// user memory must end below the lowest device that the kernel
+// maps (the PLIC), so that a kernel page table can also map a
+// process's user pages at their user addresses.
+#define USERTOP PLIC

@@ -68,6 +68,8 @@ kexec(char *path, char **argv)
       goto bad;
     if (ph.vaddr % PGSIZE != 0)
       goto bad;
+    if (ph.vaddr + ph.memsz > USERTOP)
+      goto bad;
     uint64 sz1;
     if ((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz,
                         flags2perm(ph.flags))) == 0)
@@ -87,6 +89,8 @@ kexec(char *path, char **argv)
   // Make the first inaccessible as a stack guard.
   // Use the rest as the user stack.
   sz = PGROUNDUP(sz);
+  if (sz + (USERSTACK + 1) * PGSIZE > USERTOP)
+    goto bad;
   uint64 sz1;
   if ((sz1 = uvmalloc(pagetable, sz, sz + (USERSTACK + 1) * PGSIZE, PTE_W)) ==
       0)
