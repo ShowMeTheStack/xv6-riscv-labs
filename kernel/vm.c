@@ -131,6 +131,30 @@ kvmswitch(pagetable_t kpt)
   sfence_vma();
 }
 
+// Make the user part of kernel page table kpt agree with user
+// page table pagetable for addresses [start, end): copy every
+// user (PTE_U) leaf PTE, and clear the rest. If kpt is in use,
+// the caller must flush the TLB after removing mappings.
+// returns 0, or -1 if out of memory for a page-table page.
+int
+kvmsync(pagetable_t pagetable, pagetable_t kpt, uint64 start, uint64 end)
+{
+  uint64 va;
+  pte_t *pte, *kpte;
+
+  for (va = PGROUNDDOWN(start); va < end; va += PGSIZE) {
+    pte = walk(pagetable, va, 0);
+    if (pte != 0 && (*pte & PTE_V) && (*pte & PTE_U)) {
+      if ((kpte = walk(kpt, va, 1)) == 0)
+        return -1;
+      *kpte = *pte;
+    } else if ((kpte = walk(kpt, va, 0)) != 0) {
+      *kpte = 0;
+    }
+  }
+  return 0;
+}
+
 // Return the address of the PTE in page table pagetable
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page-table pages.
@@ -523,6 +547,24 @@ vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
     return 0;
   }
   return mem;
+}
+
+// handle a page fault at user address va of process p: if va
+// is a lazily-allocated page, map a new page in both of p's
+// page tables. returns its physical address, or 0.
+uint64
+uvmfault(struct proc *p, uint64 va, int read)
+{
+  uint64 pa;
+
+  if ((pa = vmfault(p->pagetable, p->sz, va, read)) == 0)
+    return 0;
+  va = PGROUNDDOWN(va);
+  if (kvmsync(p->pagetable, p->kpagetable, va, va + PGSIZE) < 0) {
+    uvmunmap(p->pagetable, va, 1, 1);
+    return 0;
+  }
+  return pa;
 }
 
 int

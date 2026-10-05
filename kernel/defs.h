@@ -157,6 +157,7 @@ void            kvminithart(void);
 pagetable_t     kvmcreate(void);
 void            kvmfree(pagetable_t);
 void            kvmswitch(pagetable_t);
+int             kvmsync(pagetable_t, pagetable_t, uint64, uint64);
 void            kvmmap(pagetable_t, uint64, uint64, uint64, int);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     uvmcreate(void);
@@ -173,6 +174,7 @@ int             copyin(pagetable_t, uint64, char *, uint64, uint64);
 int             copyinstr(pagetable_t, uint64, char *, uint64, uint64);
 int             ismapped(pagetable_t, uint64);
 uint64          vmfault(pagetable_t, uint64, uint64, int);
+uint64          uvmfault(struct proc *, uint64, int);
 
 // plic.c
 void            plicinit(void);
