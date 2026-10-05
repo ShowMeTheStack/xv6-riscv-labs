@@ -176,6 +176,10 @@ int             ismapped(pagetable_t, uint64);
 uint64          vmfault(pagetable_t, uint64, uint64, int);
 uint64          uvmfault(struct proc *, uint64, int);
 
+// uaccess.S
+int             ucopy(char *, char *, uint64);
+int             ucopystr(char *, char *, uint64);
+
 // plic.c
 void            plicinit(void);
 void            plicinithart(void);
