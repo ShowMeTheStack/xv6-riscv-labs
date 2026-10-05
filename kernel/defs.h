@@ -8,6 +8,7 @@ struct proc;
 struct spinlock;
 struct sleeplock;
 struct stat;
+struct swapstat;
 struct superblock;
 
 // bio.c
@@ -118,6 +119,7 @@ void            ftclear(void *);
 uint64          swapin(pagetable_t, uint64);
 int             evict(void);
 void *          ualloc(void);
+void            swapstat(struct swapstat *);
 
 // spinlock.c
 void            acquire(struct spinlock*);

@@ -6,6 +6,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "vm.h"
+#include "swapstat.h"
 
 uint64
 sys_exit(void)
@@ -117,4 +118,19 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// report free memory and swap use.
+uint64
+sys_swapstat(void)
+{
+  struct swapstat st;
+  uint64 addr;
+
+  argaddr(0, &addr);
+  swapstat(&st);
+  if (copyout(myproc()->pagetable, myproc()->sz, addr, (char *)&st,
+              sizeof(st)) < 0)
+    return -1;
+  return 0;
 }

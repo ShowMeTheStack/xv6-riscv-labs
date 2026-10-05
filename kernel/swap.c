@@ -10,6 +10,7 @@
 #include "fs.h"
 #include "buf.h"
 #include "proc.h"
+#include "swapstat.h"
 #include "defs.h"
 
 // keep at least this many pages free for allocations that cannot
@@ -33,6 +34,8 @@ struct {
 struct {
   struct sleeplock lock;
   struct buf b; // only used to wait for the disk; b.data is unused
+  int pageouts; // pages written out since boot
+  int pageins;  // pages read in since boot
 } swapio;
 
 // the frame table: for every physical page that is mapped as a
@@ -205,6 +208,7 @@ evict(void)
     return 0;
   }
   swaprw(s, pa, 1);
+  swapio.pageouts++;
   releasesleep(&swapio.lock);
   kfree(pa);
   return 1;
@@ -246,10 +250,26 @@ swapin(pagetable_t pagetable, uint64 va)
 
   acquiresleep(&swapio.lock);
   swaprw(s, mem, 0);
+  swapio.pageins++;
   releasesleep(&swapio.lock);
 
   *pte = PA2PTE(mem) | (*pte & (PTE_R | PTE_W | PTE_X | PTE_U)) | PTE_V;
   ftset(mem, myproc(), va);
   swapfree(s);
   return (uint64)mem;
+}
+
+// for the swapstat system call.
+void
+swapstat(struct swapstat *st)
+{
+  st->freepages = kfreecount();
+  acquire(&slots.lock);
+  st->slotsused = slots.nused;
+  release(&slots.lock);
+  st->nslots = NSWAP;
+  acquiresleep(&swapio.lock);
+  st->pageouts = swapio.pageouts;
+  st->pageins = swapio.pageins;
+  releasesleep(&swapio.lock);
 }
