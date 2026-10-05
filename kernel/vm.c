@@ -410,6 +410,20 @@ uvmclear(pagetable_t pagetable, uint64 va)
   *pte &= ~PTE_U;
 }
 
+// how many of the len bytes at user address va lie below sz?
+// the kernel must not copy beyond them: the page table in satp
+// also maps kernel memory and devices, without PTE_U, and SUM
+// does not keep supervisor-mode accesses away from those.
+static uint64
+ulen(uint64 va, uint64 len, uint64 sz)
+{
+  if (va >= sz)
+    return 0;
+  if (len > sz - va)
+    return sz - va;
+  return len;
+}
+
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error.
@@ -419,6 +433,16 @@ copyout(pagetable_t pagetable, uint64 psz, uint64 dstva, char *src, uint64 len)
   uint64 n, va0, pa0;
   pte_t *pte;
 
+  if (pagetable == myproc()->pagetable) {
+    // the current process's pages are mapped in satp's page
+    // table (p->kpagetable): store to dstva directly.
+    n = ulen(dstva, len, psz);
+    if (ucopy((char *)dstva, src, n) < 0 || n < len)
+      return -1;
+    return 0;
+  }
+
+  // another page table (kexec's new image): walk it.
   while (len > 0) {
     va0 = PGROUNDDOWN(dstva);
     if (va0 >= MAXVA)
@@ -454,25 +478,13 @@ copyout(pagetable_t pagetable, uint64 psz, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, uint64 psz, char *dst, uint64 srcva, uint64 len)
 {
-  uint64 n, va0, pa0;
+  uint64 n;
 
-  while (len > 0) {
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if (pa0 == 0) {
-      if ((pa0 = vmfault(pagetable, psz, va0, 1)) == 0) {
-        return -1;
-      }
-    }
-    n = PGSIZE - (srcva - va0);
-    if (n > len)
-      n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
-
-    len -= n;
-    dst += n;
-    srcva = va0 + PGSIZE;
-  }
+  if (pagetable != myproc()->pagetable)
+    panic("copyin: not the current page table");
+  n = ulen(srcva, len, psz);
+  if (ucopy(dst, (char *)srcva, n) < 0 || n < len)
+    return -1;
   return 0;
 }
 
@@ -484,43 +496,9 @@ int
 copyinstr(pagetable_t pagetable, uint64 psz, char *dst, uint64 srcva,
           uint64 max)
 {
-  uint64 n, va0, pa0;
-  int got_null = 0;
-
-  while (got_null == 0 && max > 0) {
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if (pa0 == 0) {
-      if ((pa0 = vmfault(pagetable, psz, va0, 1)) == 0) {
-        return -1;
-      }
-    }
-    n = PGSIZE - (srcva - va0);
-    if (n > max)
-      n = max;
-
-    char *p = (char *)(pa0 + (srcva - va0));
-    while (n > 0) {
-      if (*p == '\0') {
-        *dst = '\0';
-        got_null = 1;
-        break;
-      } else {
-        *dst = *p;
-      }
-      --n;
-      --max;
-      p++;
-      dst++;
-    }
-
-    srcva = va0 + PGSIZE;
-  }
-  if (got_null) {
-    return 0;
-  } else {
-    return -1;
-  }
+  if (pagetable != myproc()->pagetable)
+    panic("copyinstr: not the current page table");
+  return ucopystr(dst, (char *)srcva, ulen(srcva, max, psz));
 }
 
 // allocate and map user memory if process is referencing a page
