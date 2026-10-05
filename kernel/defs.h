@@ -59,6 +59,7 @@ void            ireclaim(int);
 // kalloc.c
 void*           kalloc(void);
 void            kfree(void *);
+int             kfreecount(void);
 void            kinit(void);
 
 // log.c
@@ -116,6 +117,7 @@ void            ftset(void *, struct proc *, uint64);
 void            ftclear(void *);
 uint64          swapin(pagetable_t, uint64);
 int             evict(void);
+void *          ualloc(void);
 
 // spinlock.c
 void            acquire(struct spinlock*);

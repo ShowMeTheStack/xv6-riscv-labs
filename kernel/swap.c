@@ -12,6 +12,10 @@
 #include "proc.h"
 #include "defs.h"
 
+// keep at least this many pages free for allocations that cannot
+// evict.
+#define FREELOW 32
+
 // a slot holds one page: PGSIZE / BSIZE blocks of the swap area.
 #define SLOTBLOCK(s) (SWAPSTART + (s) * (PGSIZE / BSIZE))
 
@@ -206,6 +210,25 @@ evict(void)
   return 1;
 }
 
+// allocate a page for user memory. when few pages are free, first
+// evict pages to swap until FREELOW are free again, so that
+// allocations that cannot wait for the disk (page-table pages,
+// fork, pipes: all under spinlocks) still find memory. evicting
+// sleeps, so a caller that holds a spinlock (a copy under pi->lock
+// that touches a lazy page) only gets what is free, as before.
+void *
+ualloc(void)
+{
+  int locked;
+
+  push_off();
+  locked = mycpu()->noff > 1; // a spinlock is held besides our push_off
+  pop_off();
+  while (!locked && kfreecount() < FREELOW && evict())
+    ;
+  return kalloc();
+}
+
 // the page at va is in swap: read it into a fresh page and map
 // it again. returns the physical address, or 0 if out of memory.
 // sleeps, so the caller must not hold a spinlock.
@@ -216,7 +239,7 @@ swapin(pagetable_t pagetable, uint64 va)
   char *mem;
   int s;
 
-  if ((mem = kalloc()) == 0)
+  if ((mem = ualloc()) == 0)
     return 0;
   pte = walk(pagetable, va, 0);
   s = PTE2SLOT(*pte);

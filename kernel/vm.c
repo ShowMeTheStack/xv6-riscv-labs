@@ -232,7 +232,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
 
   oldsz = PGROUNDUP(oldsz);
   for (a = oldsz; a < newsz; a += PGSIZE) {
-    mem = kalloc();
+    mem = ualloc();
     if (mem == 0) {
       uvmdealloc(pagetable, a, oldsz);
       return 0;
@@ -552,7 +552,7 @@ vmfault(pagetable_t pagetable, uint64 psz, uint64 va, int read)
   if (ismapped(pagetable, va)) {
     return 0;
   }
-  mem = (uint64)kalloc();
+  mem = (uint64)ualloc();
   if (mem == 0)
     return 0;
   memset((void *)mem, 0, PGSIZE);
