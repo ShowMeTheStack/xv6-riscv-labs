@@ -11,6 +11,10 @@ uint ticks;
 
 extern char trampoline[], uservec[];
 
+// in uaccess.S: the user copy loops, and where a faulting copy
+// resumes.
+extern char ucopyend[], ucopyfail[];
+
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
 
@@ -145,7 +149,19 @@ kerneltrap()
   if (intr_get() != 0)
     panic("kerneltrap: interrupts enabled");
 
-  if ((which_dev = devintr()) == 0) {
+  // the trap may have interrupted a user copy: keep SUM off
+  // until the copy resumes (w_sstatus below).
+  c_sstatus(SSTATUS_SUM);
+
+  if ((scause == 13 || scause == 15) && sepc >= (uint64)ucopy &&
+      sepc < (uint64)ucopyend) {
+    // a page fault in a user copy: map a lazily-allocated
+    // page and retry, or make the copy return -1.
+    if (uvmfault(myproc(), r_stval(), scause == 13) != 0)
+      sfence_vma(); // so that the retry sees the new PTE
+    else
+      sepc = (uint64)ucopyfail;
+  } else if ((which_dev = devintr()) == 0) {
     // interrupt or trap from an unknown source
     printk("scause=0x%lx sepc=0x%lx stval=0x%lx\n", scause, r_sepc(),
            r_stval());
