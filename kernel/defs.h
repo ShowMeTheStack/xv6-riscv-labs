@@ -61,6 +61,9 @@ void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
 
+// lockdep.c
+int             lockdep_class(char*, int);
+
 // log.c
 void            initlog(int, struct superblock*);
 void            log_write(struct buf*);

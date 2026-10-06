@@ -16,6 +16,7 @@ initsleeplock(struct sleeplock *lk, char *name)
   lk->name = name;
   lk->locked = 0;
   lk->pid = 0;
+  lk->cls = lockdep_class(name, 1);
 }
 
 void

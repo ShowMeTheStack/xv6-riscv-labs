@@ -14,6 +14,7 @@ initlock(struct spinlock *lk, char *name)
   lk->name = name;
   lk->locked = 0;
   lk->cpu = 0;
+  lk->cls = lockdep_class(name, 0);
 }
 
 // Acquire the lock.
