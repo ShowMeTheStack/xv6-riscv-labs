@@ -12,7 +12,8 @@ void
 initlock(struct spinlock *lk, char *name)
 {
   lk->name = name;
-  lk->locked = 0;
+  lk->next = 0;
+  lk->serving = 0;
   lk->cpu = 0;
 }
 
@@ -21,20 +22,28 @@ initlock(struct spinlock *lk, char *name)
 void
 acquire(struct spinlock *lk)
 {
+  uint my;
+
   push_off(); // disable interrupts to avoid deadlock.
   if (holding(lk))
     panic("acquire");
 
-  // On RISC-V, __atomic_exchange_n turns into an atomic swap:
+  // Take a ticket. On RISC-V, __atomic_fetch_add turns into
+  // one atomic add that returns the old value:
   //   a5 = 1
-  //   s1 = &lk->locked
-  //   amoswap.w.aq a5, a5, (s1)
-  //
-  // Passing __ATOMIC_ACQUIRE to __atomic_exchange_n tells
-  // the C compiler and the processor to not move loads or stores
-  // past this point, to ensure that the critical section's memory
-  // references happen strictly after the lock is acquired.
-  while (__atomic_exchange_n(&lk->locked, 1, __ATOMIC_ACQUIRE) != 0)
+  //   s1 = &lk->next
+  //   amoadd.w a4, a5, (s1)
+  // so every caller gets a different number, even if
+  // several harts ask at the same moment.
+  my = __atomic_fetch_add(&lk->next, 1, __ATOMIC_RELAXED);
+
+  // Wait for our turn. __ATOMIC_ACQUIRE keeps the critical
+  // section's loads and stores after the load that sees our
+  // number; on RISC-V it is a load and then a fence:
+  //   lw a5, 0(a5)
+  //   fence r,rw
+  // Compare with ==, so that the counters may wrap.
+  while (__atomic_load_n(&lk->serving, __ATOMIC_ACQUIRE) != my)
     ;
 
   // Record info about lock acquisition for holding() and debugging.
@@ -50,27 +59,14 @@ release(struct spinlock *lk)
 
   lk->cpu = 0;
 
-  // Release the lock, equivalent to lk->locked = 0.
-  //
-  // This code doesn't use a C assignment, since the C standard
-  // implies that an assignment might be implemented with
-  // multiple store instructions.
-  //
-  // On RISC-V, __atomic_store_n turns into a single atomic store:
-  //   s1 = &lk->locked
+  // Serve the next ticket. Only the holder writes serving,
+  // so a plain load and a single store are enough; the
+  // __ATOMIC_RELEASE store makes the critical section's
+  // loads and stores visible to other CPUs before it:
+  //   a4 = &lk->serving
   //   fence rw,w
-  //   sw zero,0(s1)
-  //
-  // The __ATOMIC_RELEASE argument to __atomic_store_n tells the
-  // the C compiler and the CPU to not move loads or stores past
-  // this point, to ensure that all the stores in the critical
-  // section are visible to other CPUs before the lock is released,
-  // and that loads in the critical section occur strictly before
-  // the lock is released.
-  //
-  // On RISC-V, this generates a fence instruction before the store:
-  //   fence rw,w
-  __atomic_store_n(&lk->locked, 0, __ATOMIC_RELEASE);
+  //   sw a5, 0(a4)
+  __atomic_store_n(&lk->serving, lk->serving + 1, __ATOMIC_RELEASE);
 
   pop_off();
 }
@@ -81,7 +77,7 @@ int
 holding(struct spinlock *lk)
 {
   int r;
-  r = (lk->locked && lk->cpu == mycpu());
+  r = (lk->next != lk->serving && lk->cpu == mycpu());
   return r;
 }
 
