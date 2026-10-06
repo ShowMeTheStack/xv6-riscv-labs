@@ -27,8 +27,8 @@ struct {
   struct buf buf[NBUF];
 
   // Linked list of all buffers, through prev/next.
-  // Sorted by how recently the buffer was used.
-  // head.next is most recent, head.prev is least.
+  // Its order no longer matters: each buffer's lastuse
+  // says how recently it was used.
   struct buf head;
 } bcache;
 
@@ -57,7 +57,7 @@ binit(void)
 static struct buf *
 bget(uint dev, uint blockno)
 {
-  struct buf *b;
+  struct buf *b, *victim;
 
   acquire(&bcache.lock);
 
@@ -72,19 +72,22 @@ bget(uint dev, uint blockno)
   }
 
   // Not cached.
-  // Recycle the least recently used (LRU) unused buffer.
-  for (b = bcache.head.prev; b != &bcache.head; b = b->prev) {
-    if (b->refcnt == 0) {
-      b->dev = dev;
-      b->blockno = blockno;
-      b->valid = 0;
-      b->refcnt = 1;
-      release(&bcache.lock);
-      acquiresleep(&b->lock);
-      return b;
-    }
+  // Recycle the least recently used (LRU) unused buffer:
+  // the one whose last release has the oldest time stamp.
+  victim = 0;
+  for (b = bcache.head.next; b != &bcache.head; b = b->next) {
+    if (b->refcnt == 0 && (victim == 0 || b->lastuse < victim->lastuse))
+      victim = b;
   }
-  panic("bget: no buffers");
+  if (victim == 0)
+    panic("bget: no buffers");
+  victim->dev = dev;
+  victim->blockno = blockno;
+  victim->valid = 0;
+  victim->refcnt = 1;
+  release(&bcache.lock);
+  acquiresleep(&victim->lock);
+  return victim;
 }
 
 // Return a locked buf with the contents of the indicated block.
@@ -112,27 +115,27 @@ bwrite(struct buf *b)
 }
 
 // Release a locked buffer.
-// Move to the head of the most-recently-used list.
+// If no one else wants it, record when it was last used.
 void
 brelse(struct buf *b)
 {
+  uint now;
+
   if (!holdingsleep(&b->lock))
     panic("brelse");
 
   releasesleep(&b->lock);
 
+  acquire(&tickslock);
+  now = ticks;
+  release(&tickslock);
+
   acquire(&bcache.lock);
   b->refcnt--;
   if (b->refcnt == 0) {
     // no one is waiting for it.
-    b->next->prev = b->prev;
-    b->prev->next = b->next;
-    b->next = bcache.head.next;
-    b->prev = &bcache.head;
-    bcache.head.next->prev = b;
-    bcache.head.next = b;
+    b->lastuse = now;
   }
-
   release(&bcache.lock);
 }
 
