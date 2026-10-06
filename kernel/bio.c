@@ -203,9 +203,11 @@ brelse(struct buf *b)
 
   releasesleep(&b->lock);
 
-  acquire(&tickslock);
-  now = ticks;
-  release(&tickslock);
+  // Read the clock without tickslock, which every brelse on
+  // every hart would otherwise take. A value one tick old only
+  // makes the LRU choice a little less exact. The atomic load is
+  // a single 32-bit load that the compiler cannot split or repeat.
+  now = __atomic_load_n(&ticks, __ATOMIC_RELAXED);
 
   // b cannot move to another bucket before the decrement:
   // a miss recycles only buffers with refcnt 0.
