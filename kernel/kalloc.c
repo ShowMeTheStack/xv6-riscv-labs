@@ -11,6 +11,8 @@
 
 void freerange(void *pa_start, void *pa_end);
 
+#define STEAL 64 // most pages taken from another CPU's list at once
+
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
@@ -79,27 +81,60 @@ kfree(void *pa)
   pop_off();
 }
 
+// Take up to STEAL pages from another CPU's list: return the
+// first, and put the rest on CPU id's list. Holds only one
+// kmem lock at a time, so two stealing CPUs cannot deadlock.
+// Caller must have interrupts off.
+static struct run *
+steal(int id)
+{
+  struct run *first, *last;
+  int n;
+
+  for (int i = 1; i < NCPU; i++) {
+    struct kmem *km = &kmem[(id + i) % NCPU];
+    acquire(&km->lock);
+    first = last = km->freelist;
+    n = 0;
+    if (first) {
+      // cut the first STEAL pages (or all) off km's list.
+      for (n = 1; n < STEAL && last->next; n++)
+        last = last->next;
+      km->freelist = last->next;
+    }
+    release(&km->lock);
+    if (n == 0)
+      continue;
+    if (n > 1) {
+      // keep the first page; the rest go on this CPU's list.
+      acquire(&kmem[id].lock);
+      last->next = kmem[id].freelist;
+      kmem[id].freelist = first->next;
+      release(&kmem[id].lock);
+    }
+    return first;
+  }
+  return 0;
+}
+
 // Allocate one 4096-byte page of physical memory.
 // Returns a pointer that the kernel can use.
 // Returns 0 if the memory cannot be allocated.
 void *
 kalloc(void)
 {
-  struct run *r = 0;
+  struct run *r;
   int id;
 
   push_off();
   id = cpuid();
-  // this CPU's list first, then the other CPUs' lists.
-  // only one kmem lock is held at a time.
-  for (int i = 0; i < NCPU && r == 0; i++) {
-    struct kmem *km = &kmem[(id + i) % NCPU];
-    acquire(&km->lock);
-    r = km->freelist;
-    if (r)
-      km->freelist = r->next;
-    release(&km->lock);
-  }
+  acquire(&kmem[id].lock);
+  r = kmem[id].freelist;
+  if (r)
+    kmem[id].freelist = r->next;
+  release(&kmem[id].lock);
+  if (r == 0)
+    r = steal(id);
   pop_off();
 
   if (r)
