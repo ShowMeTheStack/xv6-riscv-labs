@@ -6,7 +6,6 @@ struct buf {
   struct sleeplock lock;
   uint refcnt;
   uint lastuse;     // ticks when refcnt last dropped to 0
-  struct buf *prev; // LRU cache list
-  struct buf *next;
+  struct buf *next; // next buffer in the same hash bucket
   uchar data[BSIZE];
 };

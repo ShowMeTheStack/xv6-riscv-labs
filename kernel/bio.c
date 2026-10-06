@@ -1,6 +1,6 @@
 // Buffer cache.
 //
-// The buffer cache is a linked list of buf structures holding
+// The buffer cache is a hash table of buf structures holding
 // cached copies of disk block contents.  Caching disk blocks
 // in memory reduces the number of disk reads and also provides
 // a synchronization point for disk blocks used by multiple processes.
@@ -22,14 +22,17 @@
 #include "fs.h"
 #include "buf.h"
 
+#define NBUCKET 13 // a prime, so block numbers spread over all buckets
+
+// A block can only be cached in bucket[blockno % NBUCKET].
+struct bucket {
+  struct buf *first; // list of buffers, through buf.next
+};
+
 struct {
   struct spinlock lock;
   struct buf buf[NBUF];
-
-  // Linked list of all buffers, through prev/next.
-  // Its order no longer matters: each buffer's lastuse
-  // says how recently it was used.
-  struct buf head;
+  struct bucket bucket[NBUCKET];
 } bcache;
 
 void
@@ -39,16 +42,40 @@ binit(void)
 
   initlock(&bcache.lock, "bcache");
 
-  // Create linked list of buffers
-  bcache.head.prev = &bcache.head;
-  bcache.head.next = &bcache.head;
+  // Every buffer starts with blockno 0, so in bucket 0.
   for (b = bcache.buf; b < bcache.buf + NBUF; b++) {
-    b->next = bcache.head.next;
-    b->prev = &bcache.head;
     initsleeplock(&b->lock, "buffer");
-    bcache.head.next->prev = b;
-    bcache.head.next = b;
+    b->next = bcache.bucket[0].first;
+    bcache.bucket[0].first = b;
   }
+}
+
+// Return the buffer holding block (dev, blockno) if bucket bk
+// has one, or 0. The caller holds the lock that protects bk.
+static struct buf *
+bfind(struct bucket *bk, uint dev, uint blockno)
+{
+  struct buf *b;
+
+  for (b = bk->first; b != 0; b = b->next)
+    if (b->dev == dev && b->blockno == blockno)
+      return b;
+  return 0;
+}
+
+// Remove b from bucket bk's list.
+static void
+bunlink(struct bucket *bk, struct buf *b)
+{
+  struct buf *p;
+
+  if (bk->first == b) {
+    bk->first = b->next;
+    return;
+  }
+  for (p = bk->first; p->next != b; p = p->next)
+    ;
+  p->next = b->next;
 }
 
 // Look through buffer cache for block on device dev.
@@ -57,34 +84,44 @@ binit(void)
 static struct buf *
 bget(uint dev, uint blockno)
 {
+  struct bucket *bk = &bcache.bucket[blockno % NBUCKET];
   struct buf *b, *victim;
+  int i, vi;
 
   acquire(&bcache.lock);
 
   // Is the block already cached?
-  for (b = bcache.head.next; b != &bcache.head; b = b->next) {
-    if (b->dev == dev && b->blockno == blockno) {
-      b->refcnt++;
-      release(&bcache.lock);
-      acquiresleep(&b->lock);
-      return b;
-    }
+  if ((b = bfind(bk, dev, blockno)) != 0) {
+    b->refcnt++;
+    release(&bcache.lock);
+    acquiresleep(&b->lock);
+    return b;
   }
 
   // Not cached.
-  // Recycle the least recently used (LRU) unused buffer:
-  // the one whose last release has the oldest time stamp.
+  // Recycle the least recently used (LRU) unused buffer,
+  // in whichever bucket it is.
   victim = 0;
-  for (b = bcache.head.next; b != &bcache.head; b = b->next) {
-    if (b->refcnt == 0 && (victim == 0 || b->lastuse < victim->lastuse))
-      victim = b;
+  vi = 0;
+  for (i = 0; i < NBUCKET; i++) {
+    for (b = bcache.bucket[i].first; b != 0; b = b->next) {
+      if (b->refcnt == 0 && (victim == 0 || b->lastuse < victim->lastuse)) {
+        victim = b;
+        vi = i;
+      }
+    }
   }
   if (victim == 0)
     panic("bget: no buffers");
+
+  // Move it to the bucket of the block it will hold.
+  bunlink(&bcache.bucket[vi], victim);
   victim->dev = dev;
   victim->blockno = blockno;
   victim->valid = 0;
   victim->refcnt = 1;
+  victim->next = bk->first;
+  bk->first = victim;
   release(&bcache.lock);
   acquiresleep(&victim->lock);
   return victim;
