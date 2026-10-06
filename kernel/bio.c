@@ -25,12 +25,16 @@
 #define NBUCKET 13 // a prime, so block numbers spread over all buckets
 
 // A block can only be cached in bucket[blockno % NBUCKET].
+// A bucket's lock protects its list and the dev, blockno, refcnt
+// and lastuse of every buffer on it.
 struct bucket {
+  struct spinlock lock;
   struct buf *first; // list of buffers, through buf.next
 };
 
+// Lock order: evict, then bucket locks in increasing index order.
 struct {
-  struct spinlock lock;
+  struct spinlock evict; // held by a miss while it recycles a buffer
   struct buf buf[NBUF];
   struct bucket bucket[NBUCKET];
 } bcache;
@@ -40,7 +44,9 @@ binit(void)
 {
   struct buf *b;
 
-  initlock(&bcache.lock, "bcache");
+  initlock(&bcache.evict, "bcache.evict");
+  for (int i = 0; i < NBUCKET; i++)
+    initlock(&bcache.bucket[i].lock, "bcache.bucket");
 
   // Every buffer starts with blockno 0, so in bucket 0.
   for (b = bcache.buf; b < bcache.buf + NBUF; b++) {
@@ -51,7 +57,7 @@ binit(void)
 }
 
 // Return the buffer holding block (dev, blockno) if bucket bk
-// has one, or 0. The caller holds the lock that protects bk.
+// has one, or 0. The caller holds bk's lock.
 static struct buf *
 bfind(struct bucket *bk, uint dev, uint blockno)
 {
@@ -63,7 +69,7 @@ bfind(struct bucket *bk, uint dev, uint blockno)
   return 0;
 }
 
-// Remove b from bucket bk's list.
+// Remove b from bucket bk's list. The caller holds bk's lock.
 static void
 bunlink(struct bucket *bk, struct buf *b)
 {
@@ -86,43 +92,76 @@ bget(uint dev, uint blockno)
 {
   struct bucket *bk = &bcache.bucket[blockno % NBUCKET];
   struct buf *b, *victim;
-  int i, vi;
+  int i, vi, better;
 
-  acquire(&bcache.lock);
-
-  // Is the block already cached?
+  // Is the block already cached? Only its own bucket can hold it.
+  acquire(&bk->lock);
   if ((b = bfind(bk, dev, blockno)) != 0) {
     b->refcnt++;
-    release(&bcache.lock);
+    release(&bk->lock);
     acquiresleep(&b->lock);
     return b;
   }
+  release(&bk->lock);
 
-  // Not cached.
+  // Not cached. Only one miss at a time may recycle a buffer.
+  acquire(&bcache.evict);
+
+  // Look again: while this hart held no lock, another hart may
+  // have missed on the same block and cached it. Only a miss adds
+  // a block to a bucket, so while evict is held, the answer stays
+  // true.
+  acquire(&bk->lock);
+  if ((b = bfind(bk, dev, blockno)) != 0) {
+    b->refcnt++;
+    release(&bk->lock);
+    release(&bcache.evict);
+    acquiresleep(&b->lock);
+    return b;
+  }
+  release(&bk->lock);
+
   // Recycle the least recently used (LRU) unused buffer,
-  // in whichever bucket it is.
+  // in whichever bucket it is. Keep holding the lock of the
+  // bucket with the best buffer so far, so that no lookup can
+  // take that buffer while the later buckets are searched.
   victim = 0;
-  vi = 0;
+  vi = -1;
   for (i = 0; i < NBUCKET; i++) {
+    acquire(&bcache.bucket[i].lock);
+    better = 0;
     for (b = bcache.bucket[i].first; b != 0; b = b->next) {
       if (b->refcnt == 0 && (victim == 0 || b->lastuse < victim->lastuse)) {
         victim = b;
-        vi = i;
+        better = 1;
       }
+    }
+    if (better) {
+      if (vi >= 0)
+        release(&bcache.bucket[vi].lock);
+      vi = i;
+    } else {
+      release(&bcache.bucket[i].lock);
     }
   }
   if (victim == 0)
     panic("bget: no buffers");
 
-  // Move it to the bucket of the block it will hold.
+  // Take it out of its bucket. Now no lookup can find it, and
+  // nobody holds it (refcnt is 0), so it is ours alone.
   bunlink(&bcache.bucket[vi], victim);
+  release(&bcache.bucket[vi].lock);
+
+  // Put it in the bucket of the block it will hold.
+  acquire(&bk->lock);
   victim->dev = dev;
   victim->blockno = blockno;
   victim->valid = 0;
   victim->refcnt = 1;
   victim->next = bk->first;
   bk->first = victim;
-  release(&bcache.lock);
+  release(&bk->lock);
+  release(&bcache.evict);
   acquiresleep(&victim->lock);
   return victim;
 }
@@ -156,6 +195,7 @@ bwrite(struct buf *b)
 void
 brelse(struct buf *b)
 {
+  struct bucket *bk;
   uint now;
 
   if (!holdingsleep(&b->lock))
@@ -167,27 +207,35 @@ brelse(struct buf *b)
   now = ticks;
   release(&tickslock);
 
-  acquire(&bcache.lock);
+  // b cannot move to another bucket before the decrement:
+  // a miss recycles only buffers with refcnt 0.
+  bk = &bcache.bucket[b->blockno % NBUCKET];
+  acquire(&bk->lock);
   b->refcnt--;
   if (b->refcnt == 0) {
     // no one is waiting for it.
     b->lastuse = now;
   }
-  release(&bcache.lock);
+  release(&bk->lock);
 }
 
+// The caller holds b (refcnt > 0), so b stays in its bucket.
 void
 bpin(struct buf *b)
 {
-  acquire(&bcache.lock);
+  struct bucket *bk = &bcache.bucket[b->blockno % NBUCKET];
+
+  acquire(&bk->lock);
   b->refcnt++;
-  release(&bcache.lock);
+  release(&bk->lock);
 }
 
 void
 bunpin(struct buf *b)
 {
-  acquire(&bcache.lock);
+  struct bucket *bk = &bcache.bucket[b->blockno % NBUCKET];
+
+  acquire(&bk->lock);
   b->refcnt--;
-  release(&bcache.lock);
+  release(&bk->lock);
 }
