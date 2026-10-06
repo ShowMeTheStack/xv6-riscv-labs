@@ -25,6 +25,7 @@ acquire(struct spinlock *lk)
   push_off(); // disable interrupts to avoid deadlock.
   if (holding(lk))
     panic("acquire");
+  lockdep_acquire(lk); // check the order before waiting
 
   // On RISC-V, __atomic_exchange_n turns into an atomic swap:
   //   a5 = 1
@@ -48,6 +49,7 @@ release(struct spinlock *lk)
 {
   if (!holding(lk))
     panic("release");
+  lockdep_release(lk);
 
   lk->cpu = 0;
 

@@ -17,6 +17,8 @@
 #include "defs.h"
 
 #define MAXCLASS 64 // lock classes; class 0 means "none"
+#define MAXHELD  8  // spinlocks one hart can hold at once
+#define NTRACE   5  // return addresses kept per acquisition
 
 struct ldclass {
   char *name;
@@ -68,4 +70,77 @@ lockdep_class(char *name, int sleep)
   ldunlk();
   pop_off();
   return c;
+}
+
+// One acquisition: which lock, its class, and where it happened.
+struct ldheld {
+  void *lk;
+  int cls;
+  uint64 pc[NTRACE];
+};
+
+// The spinlocks each hart holds, oldest first. Per hart, not per
+// process: the scheduler acquires a p->lock and the process it
+// switches to releases it, on the same hart.
+static struct ldheld held[NCPU][MAXHELD];
+static int nheld[NCPU];
+
+int lockdep_on = 1;
+
+// Fill pc[] with return addresses: the caller of acquire() and
+// the callers above it. fp is the checker's own frame pointer
+// (s0). In each frame, ra is saved at fp-8 and the caller's fp at
+// fp-16. Stop at the edge of the stack page.
+static void
+trace(uint64 fp, uint64 *pc)
+{
+  uint64 lo = PGROUNDDOWN(fp), hi = lo + PGSIZE;
+  int i = 0;
+
+  fp = *(uint64 *)(fp - 16); // the frame of acquire() itself
+  while (i < NTRACE && fp >= lo + 16 && fp <= hi) {
+    pc[i++] = *(uint64 *)(fp - 8);
+    fp = *(uint64 *)(fp - 16);
+  }
+  while (i < NTRACE)
+    pc[i++] = 0;
+}
+
+// Called by acquire() before it spins, with interrupts off.
+void
+lockdep_acquire(struct spinlock *lk)
+{
+  int id = cpuid();
+  struct ldheld *h;
+
+  if (!lockdep_on)
+    return;
+  if (lk->cls == 0)
+    panic("lockdep: lock without a class");
+  if (nheld[id] == MAXHELD)
+    panic("lockdep: too many locks held");
+  h = &held[id][nheld[id]++];
+  h->lk = lk;
+  h->cls = lk->cls;
+  trace((uint64)__builtin_frame_address(0), h->pc);
+}
+
+// Called by release(), with interrupts off. The lock was acquired
+// on this hart (holding() checked that), but maybe by another
+// thread: p->lock crosses swtch(). So search, don't just pop.
+void
+lockdep_release(struct spinlock *lk)
+{
+  int id = cpuid(), i;
+
+  if (!lockdep_on)
+    return;
+  for (i = nheld[id] - 1; i >= 0; i--)
+    if (held[id][i].lk == lk)
+      break;
+  if (i < 0)
+    panic("lockdep: release of a lock this hart does not hold");
+  for (; i + 1 < nheld[id]; i++)
+    held[id][i] = held[id][i + 1];
+  nheld[id]--;
 }
