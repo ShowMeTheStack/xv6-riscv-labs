@@ -8,12 +8,18 @@
 #include "proc.h"
 #include "defs.h"
 
+// The ticket counters start 256 below the point where they
+// wrap around to 0, so every lock wraps soon after boot, and a
+// comparison that cannot cope with the wrap fails at once,
+// not after 2^32 acquisitions.
+#define TICKET0 0xffffff00
+
 void
 initlock(struct spinlock *lk, char *name)
 {
   lk->name = name;
-  lk->next = 0;
-  lk->serving = 0;
+  lk->next = TICKET0;
+  lk->serving = TICKET0;
   lk->cpu = 0;
 }
 
