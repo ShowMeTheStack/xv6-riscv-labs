@@ -24,6 +24,7 @@ struct run {
 struct kmem {
   struct spinlock lock;
   struct run *freelist;
+  int nfree;    // pages on freelist
   char name[8]; // "kmem0", "kmem1", ...
 };
 
@@ -77,6 +78,7 @@ kfree(void *pa)
   acquire(&kmem[id].lock);
   r->next = kmem[id].freelist;
   kmem[id].freelist = r;
+  kmem[id].nfree++;
   release(&kmem[id].lock);
   pop_off();
 }
@@ -101,6 +103,7 @@ steal(int id)
       for (n = 1; n < STEAL && last->next; n++)
         last = last->next;
       km->freelist = last->next;
+      km->nfree -= n;
     }
     release(&km->lock);
     if (n == 0)
@@ -110,6 +113,7 @@ steal(int id)
       acquire(&kmem[id].lock);
       last->next = kmem[id].freelist;
       kmem[id].freelist = first->next;
+      kmem[id].nfree += n - 1;
       release(&kmem[id].lock);
     }
     return first;
@@ -130,8 +134,10 @@ kalloc(void)
   id = cpuid();
   acquire(&kmem[id].lock);
   r = kmem[id].freelist;
-  if (r)
+  if (r) {
     kmem[id].freelist = r->next;
+    kmem[id].nfree--;
+  }
   release(&kmem[id].lock);
   if (r == 0)
     r = steal(id);
@@ -140,4 +146,16 @@ kalloc(void)
   if (r)
     memset((char *)r, 5, PGSIZE); // fill with junk
   return (void *)r;
+}
+
+// Print how many free pages each CPU's list holds. Called by
+// procdump (^P). Like procdump it takes no lock, so that it
+// works on a stuck machine; the counts may be a moment old.
+void
+kmemdump(void)
+{
+  printk("free pages:");
+  for (int i = 0; i < NCPU; i++)
+    printk(" %s %d", kmem[i].name, kmem[i].nfree);
+  printk("\n");
 }

@@ -700,4 +700,5 @@ procdump(void)
     printk("%d %s %s", p->pid, state, p->name);
     printk("\n");
   }
+  kmemdump();
 }
