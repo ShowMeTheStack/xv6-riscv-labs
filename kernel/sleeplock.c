@@ -32,7 +32,7 @@ acquiresleep(struct sleeplock *lk)
 void
 acquiresleep_nested(struct sleeplock *lk, int sub)
 {
-  lockdep_acquiresleep(lk, sub); // check the order before waiting
+  lockdep_acquiresleep(lk, sub, 0); // check the order before waiting
   acquire(&lk->lk);
   while (lk->locked) {
     sleep_prepare(lk);
@@ -43,6 +43,24 @@ acquiresleep_nested(struct sleeplock *lk, int sub)
   lk->locked = 1;
   lk->pid = myproc()->pid;
   release(&lk->lk);
+}
+
+// Acquire lk only if no one holds it; never sleep.
+// Returns 1 if it was acquired.
+int
+tryacquiresleep(struct sleeplock *lk)
+{
+  if (!tryacquire(&lk->lk))
+    return 0;
+  if (lk->locked) {
+    release(&lk->lk);
+    return 0;
+  }
+  lk->locked = 1;
+  lk->pid = myproc()->pid;
+  lockdep_acquiresleep(lk, 0, 1); // held now, but never waited for
+  release(&lk->lk);
+  return 1;
 }
 
 void

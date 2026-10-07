@@ -25,7 +25,7 @@ acquire(struct spinlock *lk)
   push_off(); // disable interrupts to avoid deadlock.
   if (holding(lk))
     panic("acquire");
-  lockdep_acquire(lk); // check the order before waiting
+  lockdep_acquire(lk, 0); // check the order before waiting
 
   // On RISC-V, __atomic_exchange_n turns into an atomic swap:
   //   a5 = 1
@@ -41,6 +41,23 @@ acquire(struct spinlock *lk)
 
   // Record info about lock acquisition for holding() and debugging.
   lk->cpu = mycpu();
+}
+
+// Acquire the lock only if it is free; never spin.
+// Returns 1 if it was acquired.
+int
+tryacquire(struct spinlock *lk)
+{
+  push_off();
+  if (holding(lk))
+    panic("tryacquire");
+  if (__atomic_exchange_n(&lk->locked, 1, __ATOMIC_ACQUIRE) != 0) {
+    pop_off();
+    return 0;
+  }
+  lk->cpu = mycpu();
+  lockdep_acquire(lk, 1); // held now, but never waited for
+  return 1;
 }
 
 // Release the lock.

@@ -369,8 +369,13 @@ iput(struct inode *ip)
   uint dev = ip->dev, inum = ip->inum;
 
   if (last) {
-    // ip->ref == 1 means no other process can have ip locked.
-    acquiresleep(&ip->lock);
+    // ip->ref == 1 means no other process can have ip locked,
+    // so this never waits (and never sleeps holding itable.lock).
+    // Saying so with a try keeps the checker from recording
+    // itable -> inode, which with the usual inode -> itable
+    // would look like a cycle.
+    if (!tryacquiresleep(&ip->lock))
+      panic("iput: inode locked");
     release(&itable.lock);
 
     itrunc(ip); // free the data blocks (type stays nonzero on disk)

@@ -65,10 +65,10 @@ void            kinit(void);
 
 // lockdep.c
 int             lockdep_class(char*, int);
-void            lockdep_acquire(struct spinlock*);
+void            lockdep_acquire(struct spinlock*, int);
 void            lockdep_release(struct spinlock*);
 void            lockdep_print(void);
-void            lockdep_acquiresleep(struct sleeplock*, int);
+void            lockdep_acquiresleep(struct sleeplock*, int, int);
 void            lockdep_releasesleep(struct sleeplock*);
 void            lockdep_irq_enter(void);
 void            lockdep_irq_exit(void);
@@ -124,12 +124,14 @@ void            acquire(struct spinlock*);
 int             holding(struct spinlock*);
 void            initlock(struct spinlock*, char*);
 void            release(struct spinlock*);
+int             tryacquire(struct spinlock*);
 void            push_off(void);
 void            pop_off(void);
 
 // sleeplock.c
 void            acquiresleep(struct sleeplock*);
 void            acquiresleep_nested(struct sleeplock*, int);
+int             tryacquiresleep(struct sleeplock*);
 void            releasesleep(struct sleeplock*);
 int             holdingsleep(struct sleeplock*);
 void            initsleeplock(struct sleeplock*, char*);

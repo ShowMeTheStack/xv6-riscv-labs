@@ -352,9 +352,12 @@ push(struct ldheld *h, void *lk, int c, uint64 *pc)
   memmove(h->pc, pc, sizeof(h->pc));
 }
 
-// Called by acquire() before it spins, with interrupts off.
+// Called by acquire() before it spins, with interrupts off, or
+// by tryacquire() (try = 1) once it has the lock. A lock that is
+// never waited for cannot be one of the waits in a deadlock, so a
+// try records no order: it is only added to the held list.
 void
-lockdep_acquire(struct spinlock *lk)
+lockdep_acquire(struct spinlock *lk, int try)
 {
   int id = cpuid();
   uint64 pc[NTRACE];
@@ -368,7 +371,8 @@ lockdep_acquire(struct spinlock *lk)
     use(lk->cls, USE_IRQ, pc);
   if (intr_get()) // never: acquire() turned them off first
     use(lk->cls, USE_IRQON, pc);
-  orderall(lk->cls, pc);
+  if (!try)
+    orderall(lk->cls, pc);
   if (!lockdep_on)
     return;
   if (nheld[id] == MAXHELD)
@@ -396,9 +400,10 @@ lockdep_release(struct spinlock *lk)
   nheld[id]--;
 }
 
-// Called by acquiresleep_nested() before it waits.
+// Called by acquiresleep_nested() before it waits, or by
+// tryacquiresleep() (try = 1) once it has the lock.
 void
-lockdep_acquiresleep(struct sleeplock *lk, int sub)
+lockdep_acquiresleep(struct sleeplock *lk, int sub, int try)
 {
   uint64 pc[NTRACE];
   struct proc *p;
@@ -413,7 +418,8 @@ lockdep_acquiresleep(struct sleeplock *lk, int sub)
     trace((uint64)__builtin_frame_address(0), pc);
     // a sleep-lock's holder runs with interrupts on, and sleeps
     use(c, inirq[cpuid()] ? USE_IRQ : USE_IRQON, pc);
-    orderall(c, pc);
+    if (!try)
+      orderall(c, pc);
     s = p - proc;
     if (nsheld[s] == MAXSLEEP)
       panic("lockdep: too many sleep-locks held");
