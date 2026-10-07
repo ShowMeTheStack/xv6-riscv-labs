@@ -147,10 +147,12 @@ filewrite(struct file *f, uint64 addr, int n)
     ret = devsw[f->major].write(1, addr, n);
   } else if (f->type == FD_INODE) {
     // write a few blocks at a time to avoid exceeding
-    // the maximum log transaction size, including
-    // i-node, indirect block, allocation blocks,
-    // and 2 blocks of slop for non-aligned writes.
-    int max = ((MAXOPBLOCKS - 1 - 1 - 2) / 2) * BSIZE;
+    // the maximum log transaction size: the i-node,
+    // up to 3 indirect blocks, the bitmap blocks of
+    // 2 new indirect blocks, 1 block of slop for a
+    // non-aligned write, and 2 per data block (the
+    // block and its bitmap block).
+    int max = ((MAXOPBLOCKS - 1 - 3 - 2 - 1) / 2) * BSIZE;
     int i = 0;
     while (i < n) {
       int n1 = n - i;
