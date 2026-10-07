@@ -22,6 +22,7 @@ initsleeplock(struct sleeplock *lk, char *name)
 void
 acquiresleep(struct sleeplock *lk)
 {
+  lockdep_acquiresleep(lk); // check the order before waiting
   acquire(&lk->lk);
   while (lk->locked) {
     sleep_prepare(lk);
@@ -37,6 +38,7 @@ acquiresleep(struct sleeplock *lk)
 void
 releasesleep(struct sleeplock *lk)
 {
+  lockdep_releasesleep(lk);
   acquire(&lk->lk);
   lk->locked = 0;
   lk->pid = 0;

@@ -18,6 +18,7 @@
 
 #define MAXCLASS 64 // lock classes; class 0 means "none"
 #define MAXHELD  8  // spinlocks one hart can hold at once
+#define MAXSLEEP 8  // sleep-locks one process can hold at once
 #define NTRACE   5  // return addresses kept per acquisition
 #define MAXEDGE  256
 
@@ -85,6 +86,13 @@ struct ldheld {
 // switches to releases it, on the same hart.
 static struct ldheld held[NCPU][MAXHELD];
 static int nheld[NCPU];
+
+// The sleep-locks each process holds, by proc[] slot. A process
+// can sleep holding them and wake up on another hart, so they
+// belong to the process. Only the process changes its own list.
+static struct ldheld sheld[NPROC][MAXSLEEP];
+static int nsheld[NPROC];
+extern struct proc proc[NPROC];
 
 int lockdep_on = 1;
 static int busy[NCPU]; // this hart is printing a report
@@ -248,29 +256,49 @@ order(struct ldheld *h, int c, uint64 *pc)
   ldunlk();
 }
 
+// Order class c after every lock this hart holds and, if a
+// process is running, every sleep-lock it holds.
+static void
+orderall(int c, uint64 *pc)
+{
+  int id = cpuid(), i, s;
+  struct proc *p = mycpu()->proc;
+
+  for (i = 0; i < nheld[id] && lockdep_on; i++)
+    order(&held[id][i], c, pc);
+  if (p) {
+    s = p - proc;
+    for (i = 0; i < nsheld[s] && lockdep_on; i++)
+      order(&sheld[s][i], c, pc);
+  }
+}
+
+static void
+push(struct ldheld *h, void *lk, int c, uint64 *pc)
+{
+  h->lk = lk;
+  h->cls = c;
+  memmove(h->pc, pc, sizeof(h->pc));
+}
+
 // Called by acquire() before it spins, with interrupts off.
 void
 lockdep_acquire(struct spinlock *lk)
 {
-  int id = cpuid(), i;
+  int id = cpuid();
   uint64 pc[NTRACE];
-  struct ldheld *h;
 
   if (!lockdep_on || busy[id])
     return;
   if (lk->cls == 0)
     panic("lockdep: lock without a class");
   trace((uint64)__builtin_frame_address(0), pc);
-  for (i = 0; i < nheld[id] && lockdep_on; i++)
-    order(&held[id][i], lk->cls, pc);
+  orderall(lk->cls, pc);
   if (!lockdep_on)
     return;
   if (nheld[id] == MAXHELD)
     panic("lockdep: too many locks held");
-  h = &held[id][nheld[id]++];
-  h->lk = lk;
-  h->cls = lk->cls;
-  memmove(h->pc, pc, sizeof(h->pc));
+  push(&held[id][nheld[id]++], lk, lk->cls, pc);
 }
 
 // Called by release(), with interrupts off. The lock was acquired
@@ -291,6 +319,56 @@ lockdep_release(struct spinlock *lk)
   for (; i + 1 < nheld[id]; i++)
     held[id][i] = held[id][i + 1];
   nheld[id]--;
+}
+
+// Called by acquiresleep() before it waits.
+void
+lockdep_acquiresleep(struct sleeplock *lk)
+{
+  uint64 pc[NTRACE];
+  struct proc *p;
+  int s;
+
+  push_off(); // stay on this hart while using its list
+  p = mycpu()->proc;
+  if (lockdep_on && !busy[cpuid()]) {
+    if (lk->cls == 0 || p == 0)
+      panic("lockdep: acquiresleep");
+    trace((uint64)__builtin_frame_address(0), pc);
+    orderall(lk->cls, pc);
+    s = p - proc;
+    if (nsheld[s] == MAXSLEEP)
+      panic("lockdep: too many sleep-locks held");
+    if (lockdep_on)
+      push(&sheld[s][nsheld[s]++], lk, lk->cls, pc);
+  }
+  pop_off();
+}
+
+// Called by releasesleep(). Sleep-locks are released by the
+// process that holds them, whatever hart it is on now.
+void
+lockdep_releasesleep(struct sleeplock *lk)
+{
+  struct proc *p;
+  int s, i;
+
+  push_off();
+  p = mycpu()->proc;
+  if (lockdep_on && !busy[cpuid()]) {
+    if (p == 0)
+      panic("lockdep: releasesleep");
+    s = p - proc;
+    for (i = nsheld[s] - 1; i >= 0; i--)
+      if (sheld[s][i].lk == lk)
+        break;
+    if (i < 0)
+      panic("lockdep: release of a sleep-lock this process does not hold");
+    for (; i + 1 < nsheld[s]; i++)
+      sheld[s][i] = sheld[s][i + 1];
+    nsheld[s]--;
+  }
+  pop_off();
 }
 
 // Print the order learned so far (Ctrl-P). Without ldlock:
