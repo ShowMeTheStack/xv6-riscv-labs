@@ -12,3 +12,4 @@ struct sleeplock {
 // Roles for acquiresleep_nested(): a sleep-lock taken while
 // another lock of its class is held. Role 0 is the default.
 #define SUB_CHILD 1 // an inode, while its directory is locked
+#define SUB_INNER 1 // a buffer, while an indirect or log block is held

@@ -54,7 +54,8 @@ bzero(int dev, int bno)
 {
   struct buf *bp;
 
-  bp = bread(dev, bno);
+  // bmap() may hold an indirect block here.
+  bp = bread_nested(dev, bno, SUB_INNER);
   memset(bp->data, 0, BSIZE);
   log_write(bp);
   brelse(bp);
@@ -72,7 +73,8 @@ balloc(uint dev)
 
   bp = 0;
   for (b = 0; b < sb.size; b += BPB) {
-    bp = bread(dev, BBLOCK(b, sb));
+    // bmap() may hold an indirect block here.
+    bp = bread_nested(dev, BBLOCK(b, sb), SUB_INNER);
     for (bi = 0; bi < BPB && b + bi < sb.size; bi++) {
       m = 1 << (bi % 8);
       if ((bp->data[bi / 8] & m) == 0) { // Is block free?
@@ -96,7 +98,8 @@ bfree(int dev, uint b)
   struct buf *bp;
   int bi, m;
 
-  bp = bread(dev, BBLOCK(b, sb));
+  // itrunc() may hold the indirect block here.
+  bp = bread_nested(dev, BBLOCK(b, sb), SUB_INNER);
   bi = b % BPB;
   m = 1 << (bi % 8);
   if ((bp->data[bi / 8] & m) == 0)

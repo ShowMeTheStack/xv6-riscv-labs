@@ -55,7 +55,7 @@ binit(void)
 // If not found, allocate a buffer.
 // In either case, return locked buffer.
 static struct buf *
-bget(uint dev, uint blockno)
+bget(uint dev, uint blockno, int sub)
 {
   struct buf *b;
 
@@ -66,7 +66,7 @@ bget(uint dev, uint blockno)
     if (b->dev == dev && b->blockno == blockno) {
       b->refcnt++;
       release(&bcache.lock);
-      acquiresleep(&b->lock);
+      acquiresleep_nested(&b->lock, sub);
       return b;
     }
   }
@@ -80,7 +80,7 @@ bget(uint dev, uint blockno)
       b->valid = 0;
       b->refcnt = 1;
       release(&bcache.lock);
-      acquiresleep(&b->lock);
+      acquiresleep_nested(&b->lock, sub);
       return b;
     }
   }
@@ -91,9 +91,17 @@ bget(uint dev, uint blockno)
 struct buf *
 bread(uint dev, uint blockno)
 {
+  return bread_nested(dev, blockno, 0);
+}
+
+// bread, for a block read while another buffer is held; sub is
+// its role (see acquiresleep_nested).
+struct buf *
+bread_nested(uint dev, uint blockno, int sub)
+{
   struct buf *b;
 
-  b = bget(dev, blockno);
+  b = bget(dev, blockno, sub);
   if (!b->valid) {
     virtio_disk_rw(b, 0);
     b->valid = 1;
