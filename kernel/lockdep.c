@@ -270,6 +270,21 @@ report(struct ldheld *h, int c, uint64 *pc)
   }
 }
 
+// After a report, printed by this hart with ldlock held: panic,
+// or (LOCKDEP_PANIC 0) carry on without the checker. Once the
+// graph has a cycle, more reports would mostly be echoes of it.
+static void
+stop(void)
+{
+  if (LOCKDEP_PANIC) {
+    ldunlk();
+    panic("lockdep");
+  }
+  printk("lockdep: turning off the checker\n");
+  lockdep_on = 0;
+  busy[cpuid()] = 0;
+}
+
 // Learn that class c is acquired while h is held. Edges are only
 // ever added, so a bit seen set without the lock can be trusted:
 // the common case costs one load and no lock. A new edge is
@@ -286,9 +301,7 @@ order(struct ldheld *h, int c, uint64 *pc)
     if (reach(c, h->cls)) {
       busy[id] = 1; // printk() acquires pr.lock: don't check it
       report(h, c, pc);
-      printk("lockdep: turning off the checker\n");
-      lockdep_on = 0;
-      busy[id] = 0;
+      stop();
     } else {
       newedge(h, c, pc);
     }
@@ -336,9 +349,7 @@ use(int c, int how, uint64 *pc)
              "with interrupts on\n", cls[c].name);
       where("in a handler:", c, cls[c].usepc[USE_IRQ - 1]);
       where("interrupts on:", c, cls[c].usepc[USE_IRQON - 1]);
-      printk("lockdep: turning off the checker\n");
-      lockdep_on = 0;
-      busy[id] = 0;
+      stop();
     }
   }
   ldunlk();
