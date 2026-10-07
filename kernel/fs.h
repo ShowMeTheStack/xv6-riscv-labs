@@ -26,7 +26,7 @@ struct superblock {
 #define NDIRECT    11 // addrs[NDIRECT] is singly, addrs[NDIRECT+1] doubly indirect
 #define NINDIRECT  (BSIZE / sizeof(uint))
 #define NDINDIRECT (NINDIRECT * NINDIRECT)
-#define MAXFILE    (NDIRECT + NINDIRECT)
+#define MAXFILE    (NDIRECT + NINDIRECT + NDINDIRECT)
 #define NLINK_MAX  32767 // nlink is a short; refuse links past its maximum
 
 // On-disk inode structure
