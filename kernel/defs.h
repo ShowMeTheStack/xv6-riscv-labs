@@ -65,6 +65,7 @@ void            kinit(void);
 int             lockdep_class(char*, int);
 void            lockdep_acquire(struct spinlock*);
 void            lockdep_release(struct spinlock*);
+void            lockdep_print(void);
 
 // log.c
 void            initlog(int, struct superblock*);

@@ -19,6 +19,7 @@
 #define MAXCLASS 64 // lock classes; class 0 means "none"
 #define MAXHELD  8  // spinlocks one hart can hold at once
 #define NTRACE   5  // return addresses kept per acquisition
+#define MAXEDGE  256
 
 struct ldclass {
   char *name;
@@ -65,7 +66,7 @@ lockdep_class(char *name, int sleep)
       panic("lockdep: too many classes");
     cls[c].name = name;
     cls[c].sleep = sleep;
-    nclass++;
+    __atomic_store_n(&nclass, c + 1, __ATOMIC_RELEASE); // for lockdep_print
   }
   ldunlk();
   pop_off();
@@ -106,23 +107,73 @@ trace(uint64 fp, uint64 *pc)
     pc[i++] = 0;
 }
 
+// An edge a -> b: a lock of class b was acquired while a lock
+// of class a was held. Kept with where both were acquired.
+struct ldedge {
+  int a, b;
+  int hart, pid;      // who did it first
+  uint64 apc[NTRACE]; // where the held lock was acquired
+  uint64 bpc[NTRACE]; // where the new one was
+};
+
+static uint64 after[MAXCLASS]; // bit b of after[a]: edge a -> b
+static struct ldedge edges[MAXEDGE];
+static int nedges;
+
+// Record the edge h's class -> c. Caller holds ldlock.
+static void
+newedge(struct ldheld *h, int c, uint64 *pc)
+{
+  struct proc *p = mycpu()->proc;
+  struct ldedge *e;
+
+  if (nedges == MAXEDGE)
+    panic("lockdep: too many edges");
+  e = &edges[nedges++];
+  e->a = h->cls;
+  e->b = c;
+  e->hart = cpuid();
+  e->pid = p ? p->pid : 0;
+  memmove(e->apc, h->pc, sizeof(e->apc));
+  memmove(e->bpc, pc, sizeof(e->bpc));
+  __atomic_or_fetch(&after[h->cls], 1UL << c, __ATOMIC_RELEASE);
+}
+
+// Learn that class c is acquired while h is held. Edges are only
+// ever added, so a bit seen set without the lock can be trusted:
+// the common case costs one load and no lock.
+static void
+order(struct ldheld *h, int c, uint64 *pc)
+{
+  if (__atomic_load_n(&after[h->cls], __ATOMIC_RELAXED) & (1UL << c))
+    return;
+  ldlk();
+  if ((after[h->cls] & (1UL << c)) == 0)
+    newedge(h, c, pc);
+  ldunlk();
+}
+
 // Called by acquire() before it spins, with interrupts off.
 void
 lockdep_acquire(struct spinlock *lk)
 {
-  int id = cpuid();
+  int id = cpuid(), i;
+  uint64 pc[NTRACE];
   struct ldheld *h;
 
   if (!lockdep_on)
     return;
   if (lk->cls == 0)
     panic("lockdep: lock without a class");
+  trace((uint64)__builtin_frame_address(0), pc);
+  for (i = 0; i < nheld[id]; i++)
+    order(&held[id][i], lk->cls, pc);
   if (nheld[id] == MAXHELD)
     panic("lockdep: too many locks held");
   h = &held[id][nheld[id]++];
   h->lk = lk;
   h->cls = lk->cls;
-  trace((uint64)__builtin_frame_address(0), h->pc);
+  memmove(h->pc, pc, sizeof(h->pc));
 }
 
 // Called by release(), with interrupts off. The lock was acquired
@@ -143,4 +194,25 @@ lockdep_release(struct spinlock *lk)
   for (; i + 1 < nheld[id]; i++)
     held[id][i] = held[id][i + 1];
   nheld[id]--;
+}
+
+// Print the order learned so far (Ctrl-P). Without ldlock:
+// printk() acquires pr.lock, and the checker may need ldlock for
+// that. Classes and edges are only ever added.
+void
+lockdep_print(void)
+{
+  int a, b, n = __atomic_load_n(&nclass, __ATOMIC_ACQUIRE);
+  uint64 m;
+
+  for (a = 1; a < n; a++) {
+    m = __atomic_load_n(&after[a], __ATOMIC_ACQUIRE);
+    if (m == 0)
+      continue;
+    printk("lockdep: %s ->", cls[a].name);
+    for (b = 1; b < n; b++)
+      if (m & (1UL << b))
+        printk(" %s", cls[b].name);
+    printk("\n");
+  }
 }
