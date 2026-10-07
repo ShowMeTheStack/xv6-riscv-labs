@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "proc.h"
 #include "defs.h"
+#include "lockdep.h"
 
 #define MAXCLASS 64 // lock classes; class 0 means "none"
 #define MAXHELD  8  // spinlocks one hart can hold at once
@@ -33,6 +34,7 @@ struct ldclass {
   uint64 usepc[2][NTRACE];  // where each use was first seen
   int sub[NSUB];            // the class of each subclass, if made
   char subname[24];         // "inode/1", for a subclass
+  int test;                 // a self-test class (see selftest)
 };
 
 static struct ldclass cls[MAXCLASS];
@@ -106,6 +108,7 @@ subclass(int c, int sub)
     cls[s].subname[n + 1] = '0' + sub;
     cls[s].name = cls[s].subname;
     cls[s].sleep = cls[c].sleep;
+    cls[s].test = cls[c].test;
     __atomic_store_n(&nclass, s + 1, __ATOMIC_RELEASE);
     __atomic_store_n(&cls[c].sub[sub], s, __ATOMIC_RELEASE);
   }
@@ -136,6 +139,9 @@ extern struct proc proc[NPROC];
 int lockdep_on = 1;
 static int busy[NCPU];  // this hart is printing a report
 static int inirq[NCPU]; // this hart is running an interrupt handler
+static uint64 nchecks[NCPU];      // acquisitions checked, per hart
+static uint64 nslow;              // checks that took ldlock
+static int nreports, ntestreports;
 
 // Fill pc[] with return addresses: the caller of acquire() and
 // the callers above it. fp is the checker's own frame pointer
@@ -276,6 +282,7 @@ report(struct ldheld *h, int c, uint64 *pc)
 static void
 stop(void)
 {
+  nreports++;
   if (LOCKDEP_PANIC) {
     ldunlk();
     panic("lockdep");
@@ -297,11 +304,17 @@ order(struct ldheld *h, int c, uint64 *pc)
   if (__atomic_load_n(&after[h->cls], __ATOMIC_RELAXED) & (1UL << c))
     return;
   ldlk();
+  nslow++;
   if ((after[h->cls] & (1UL << c)) == 0) {
     if (reach(c, h->cls)) {
       busy[id] = 1; // printk() acquires pr.lock: don't check it
       report(h, c, pc);
-      stop();
+      if (cls[c].test) { // a self-test: count it and go on
+        ntestreports++;
+        busy[id] = 0;
+      } else {
+        stop();
+      }
     } else {
       newedge(h, c, pc);
     }
@@ -377,6 +390,7 @@ lockdep_acquire(struct spinlock *lk, int try)
     return;
   if (lk->cls == 0)
     panic("lockdep: lock without a class");
+  nchecks[id]++;
   trace((uint64)__builtin_frame_address(0), pc);
   if (inirq[id])
     use(lk->cls, USE_IRQ, pc);
@@ -426,6 +440,7 @@ lockdep_acquiresleep(struct sleeplock *lk, int sub, int try)
     if (lk->cls == 0 || p == 0)
       panic("lockdep: acquiresleep");
     c = subclass(lk->cls, sub);
+    nchecks[cpuid()]++;
     trace((uint64)__builtin_frame_address(0), pc);
     // a sleep-lock's holder runs with interrupts on, and sleeps
     use(c, inirq[cpuid()] ? USE_IRQ : USE_IRQON, pc);
@@ -499,4 +514,142 @@ lockdep_print(void)
         printk(" %s", cls[b].name);
     printk("\n");
   }
+}
+
+// Self-tests: lock orders, right and wrong, on locks of their own,
+// whose classes are marked "test". A report about a test class is
+// printed and counted, but neither panics nor stops the checker.
+static struct spinlock ta, tb, tc, ts1, ts2;
+static struct sleeplock tsa, tsb;
+static uint testbusy;
+
+// Forget every order that involves a test class.
+static void
+forget(void)
+{
+  int a, b, i, j;
+
+  ldlk();
+  for (a = 1; a < nclass; a++)
+    for (b = 1; b < nclass; b++)
+      if (cls[a].test || cls[b].test)
+        after[a] &= ~(1UL << b);
+  for (i = j = 0; i < nedges; i++)
+    if (!cls[edges[i].a].test && !cls[edges[i].b].test)
+      edges[j++] = edges[i];
+  nedges = j;
+  ldunlk();
+}
+
+// Acquire a, then b inside it; release both.
+static void
+nest(struct spinlock *a, struct spinlock *b)
+{
+  acquire(a);
+  acquire(b);
+  release(b);
+  release(a);
+}
+
+// The same for sleep-locks, each in a role.
+static void
+nestsleep(struct sleeplock *a, int asub, struct sleeplock *b, int bsub)
+{
+  acquiresleep_nested(a, asub);
+  acquiresleep_nested(b, bsub);
+  releasesleep(b);
+  releasesleep(a);
+}
+
+static int
+selftest(int n)
+{
+  int before;
+
+  if (ta.cls == 0) {
+    initlock(&ta, "test A");
+    initlock(&tb, "test B");
+    initlock(&tc, "test C");
+    initlock(&ts1, "test S");
+    initlock(&ts2, "test S");
+    initsleeplock(&tsa, "test T");
+    initsleeplock(&tsb, "test T");
+    cls[ta.cls].test = cls[tb.cls].test = cls[tc.cls].test = 1;
+    cls[ts1.cls].test = cls[tsa.cls].test = 1;
+  }
+  push_off();
+  forget();
+  pop_off();
+  before = ntestreports;
+  switch (n) {
+  case 1: // A then B; later B then A
+    nest(&ta, &tb);
+    nest(&tb, &ta);
+    break;
+  case 2: // A then B, B then C; later C then A
+    nest(&ta, &tb);
+    nest(&tb, &tc);
+    nest(&tc, &ta);
+    break;
+  case 3: // two locks of one class, one inside the other
+    nest(&ts1, &ts2);
+    break;
+  case 4: // the same with sleep-locks, the inner one as SUB_CHILD;
+          // later the same two locks the other way round
+    nestsleep(&tsa, 0, &tsb, SUB_CHILD);
+    nestsleep(&tsb, 0, &tsa, SUB_CHILD);
+    break;
+  case 5: // role 0 then SUB_CHILD; later SUB_CHILD then role 0
+    nestsleep(&tsa, 0, &tsb, SUB_CHILD);
+    nestsleep(&tsb, SUB_CHILD, &tsa, 0);
+    break;
+  case 6: // A then B; later B then a trylock of A
+    nest(&ta, &tb);
+    acquire(&tb);
+    if (tryacquire(&ta))
+      release(&ta);
+    release(&tb);
+    break;
+  default:
+    return -1;
+  }
+  return ntestreports - before;
+}
+
+// lockdep(0, st): copy the checker's statistics to st.
+// lockdep(n, 0): run self-test n and return how many reports it
+// caused; -1 if there is no such test, the checker is off, or
+// another self-test is running.
+uint64
+sys_lockdep(void)
+{
+  int cmd, i, r;
+  uint64 addr;
+  struct ldstat st;
+
+  argint(0, &cmd);
+  argaddr(1, &addr);
+  if (cmd == 0) {
+    memset(&st, 0, sizeof(st));
+    push_off();
+    ldlk();
+    st.on = lockdep_on;
+    for (i = 1; i < nclass; i++)
+      st.classes += !cls[i].test;
+    for (i = 0; i < nedges; i++)
+      st.edges += !cls[edges[i].a].test && !cls[edges[i].b].test;
+    st.reports = nreports;
+    for (i = 0; i < NCPU; i++)
+      st.checks += nchecks[i];
+    st.slow = nslow;
+    ldunlk();
+    pop_off();
+    return copyout(myproc()->pagetable, myproc()->sz, addr, (char *)&st,
+                   sizeof(st));
+  }
+  if (!lockdep_on || __atomic_exchange_n(&testbusy, 1, __ATOMIC_ACQUIRE))
+    return -1;
+  r = selftest(cmd);
+  __atomic_store_n(&testbusy, 0, __ATOMIC_RELEASE);
+  return r;
 }
