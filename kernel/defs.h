@@ -68,6 +68,8 @@ void            lockdep_release(struct spinlock*);
 void            lockdep_print(void);
 void            lockdep_acquiresleep(struct sleeplock*);
 void            lockdep_releasesleep(struct sleeplock*);
+void            lockdep_irq_enter(void);
+void            lockdep_irq_exit(void);
 
 // log.c
 void            initlog(int, struct superblock*);

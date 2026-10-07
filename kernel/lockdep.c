@@ -22,9 +22,14 @@
 #define NTRACE   5  // return addresses kept per acquisition
 #define MAXEDGE  256
 
+#define USE_IRQ   1 // taken in an interrupt handler
+#define USE_IRQON 2 // held with interrupts on
+
 struct ldclass {
   char *name;
-  int sleep; // 1 for a sleep-lock class
+  int sleep;                // 1 for a sleep-lock class
+  int use;                  // USE_IRQ, USE_IRQON
+  uint64 usepc[2][NTRACE];  // where each use was first seen
 };
 
 static struct ldclass cls[MAXCLASS];
@@ -95,7 +100,8 @@ static int nsheld[NPROC];
 extern struct proc proc[NPROC];
 
 int lockdep_on = 1;
-static int busy[NCPU]; // this hart is printing a report
+static int busy[NCPU];  // this hart is printing a report
+static int inirq[NCPU]; // this hart is running an interrupt handler
 
 // Fill pc[] with return addresses: the caller of acquire() and
 // the callers above it. fp is the checker's own frame pointer
@@ -257,7 +263,9 @@ order(struct ldheld *h, int c, uint64 *pc)
 }
 
 // Order class c after every lock this hart holds and, if a
-// process is running, every sleep-lock it holds.
+// process is running, every sleep-lock it holds. Not in an
+// interrupt handler: it runs on top of whatever process it
+// interrupted, but does not act for it.
 static void
 orderall(int c, uint64 *pc)
 {
@@ -266,11 +274,40 @@ orderall(int c, uint64 *pc)
 
   for (i = 0; i < nheld[id] && lockdep_on; i++)
     order(&held[id][i], c, pc);
-  if (p) {
+  if (p && inirq[id] == 0) {
     s = p - proc;
     for (i = 0; i < nsheld[s] && lockdep_on; i++)
       order(&sheld[s][i], c, pc);
   }
+}
+
+// Class c is used in a way how. A lock that is taken in an
+// interrupt handler (USE_IRQ) must never be held with interrupts
+// on (USE_IRQON): the handler could interrupt the holder on its
+// own hart and spin forever on the lock underneath it.
+static void
+use(int c, int how, uint64 *pc)
+{
+  int id = cpuid();
+
+  if (cls[c].use & how)
+    return;
+  ldlk();
+  if ((cls[c].use & how) == 0) {
+    cls[c].use |= how;
+    memmove(cls[c].usepc[how - 1], pc, sizeof(cls[c].usepc[0]));
+    if (cls[c].use == (USE_IRQ | USE_IRQON)) {
+      busy[id] = 1;
+      printk("lockdep: %s is taken in interrupt handlers and held "
+             "with interrupts on\n", cls[c].name);
+      where("in a handler:", c, cls[c].usepc[USE_IRQ - 1]);
+      where("interrupts on:", c, cls[c].usepc[USE_IRQON - 1]);
+      printk("lockdep: turning off the checker\n");
+      lockdep_on = 0;
+      busy[id] = 0;
+    }
+  }
+  ldunlk();
 }
 
 static void
@@ -293,6 +330,10 @@ lockdep_acquire(struct spinlock *lk)
   if (lk->cls == 0)
     panic("lockdep: lock without a class");
   trace((uint64)__builtin_frame_address(0), pc);
+  if (inirq[id])
+    use(lk->cls, USE_IRQ, pc);
+  if (intr_get()) // never: acquire() turned them off first
+    use(lk->cls, USE_IRQON, pc);
   orderall(lk->cls, pc);
   if (!lockdep_on)
     return;
@@ -335,6 +376,8 @@ lockdep_acquiresleep(struct sleeplock *lk)
     if (lk->cls == 0 || p == 0)
       panic("lockdep: acquiresleep");
     trace((uint64)__builtin_frame_address(0), pc);
+    // a sleep-lock's holder runs with interrupts on, and sleeps
+    use(lk->cls, inirq[cpuid()] ? USE_IRQ : USE_IRQON, pc);
     orderall(lk->cls, pc);
     s = p - proc;
     if (nsheld[s] == MAXSLEEP)
@@ -369,6 +412,20 @@ lockdep_releasesleep(struct sleeplock *lk)
     nsheld[s]--;
   }
   pop_off();
+}
+
+// devintr() calls these around each interrupt handler, with
+// interrupts off.
+void
+lockdep_irq_enter(void)
+{
+  inirq[cpuid()]++;
+}
+
+void
+lockdep_irq_exit(void)
+{
+  inirq[cpuid()]--;
 }
 
 // Print the order learned so far (Ctrl-P). Without ldlock:

@@ -195,6 +195,7 @@ devintr()
     // irq indicates which device interrupted.
     int irq = plic_claim();
 
+    lockdep_irq_enter();
     if (irq == UART0_IRQ) {
       uartintr();
     } else if (irq == VIRTIO0_IRQ) {
@@ -202,6 +203,7 @@ devintr()
     } else if (irq) {
       printk("unexpected interrupt irq=%d\n", irq);
     }
+    lockdep_irq_exit();
 
     // the PLIC allows each device to raise at most one
     // interrupt at a time; tell the PLIC the device is
@@ -212,7 +214,9 @@ devintr()
     return 1;
   } else if (scause == 0x8000000000000005L) {
     // timer interrupt.
+    lockdep_irq_enter();
     clockintr();
+    lockdep_irq_exit();
     return 2;
   } else {
     return 0;
