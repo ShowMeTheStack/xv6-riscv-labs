@@ -87,6 +87,7 @@ static struct ldheld held[NCPU][MAXHELD];
 static int nheld[NCPU];
 
 int lockdep_on = 1;
+static int busy[NCPU]; // this hart is printing a report
 
 // Fill pc[] with return addresses: the caller of acquire() and
 // the callers above it. fp is the checker's own frame pointer
@@ -112,6 +113,7 @@ trace(uint64 fp, uint64 *pc)
 struct ldedge {
   int a, b;
   int hart, pid;      // who did it first
+  char name[16];      // and the process's name
   uint64 apc[NTRACE]; // where the held lock was acquired
   uint64 bpc[NTRACE]; // where the new one was
 };
@@ -134,22 +136,115 @@ newedge(struct ldheld *h, int c, uint64 *pc)
   e->b = c;
   e->hart = cpuid();
   e->pid = p ? p->pid : 0;
+  safestrcpy(e->name, p ? p->name : "", sizeof(e->name));
   memmove(e->apc, h->pc, sizeof(e->apc));
   memmove(e->bpc, pc, sizeof(e->bpc));
   __atomic_or_fetch(&after[h->cls], 1UL << c, __ATOMIC_RELEASE);
 }
 
+// Is there a path of edges from class a to class b? Depth-first
+// search; on success prev[] holds the path, backwards from b.
+// Caller holds ldlock.
+static int prev[MAXCLASS];
+
+static int
+reach(int a, int b)
+{
+  int stack[MAXCLASS], n = 0, x, y;
+  uint64 seen = 1UL << a;
+
+  if (a == b)
+    return 1;
+  stack[n++] = a;
+  while (n > 0) {
+    x = stack[--n];
+    for (y = 1; y < nclass; y++) {
+      if ((after[x] & (1UL << y)) == 0 || (seen & (1UL << y)) != 0)
+        continue;
+      seen |= 1UL << y;
+      prev[y] = x;
+      if (y == b)
+        return 1;
+      stack[n++] = y;
+    }
+  }
+  return 0;
+}
+
+static void
+who(int hart, int pid, char *name)
+{
+  if (pid == 0)
+    printk("hart %d, no process:\n", hart);
+  else if (name[0] == 0)
+    printk("hart %d, pid %d:\n", hart, pid);
+  else
+    printk("hart %d, pid %d (%s):\n", hart, pid, name);
+}
+
+static void
+where(char *what, int c, uint64 *pc)
+{
+  printk("  %s %s at", what, cls[c].name);
+  for (int i = 0; i < NTRACE && pc[i]; i++)
+    printk(" 0x%lx", pc[i]);
+  printk("\n");
+}
+
+// Acquiring class c while holding h would close a cycle: the path
+// in prev[] already leads from c to h's class. Print both orders.
+static void
+report(struct ldheld *h, int c, uint64 *pc)
+{
+  struct proc *p = mycpu()->proc;
+  int path[MAXCLASS], n = 0, i, k;
+  struct ldedge *e;
+
+  for (k = h->cls; k != c; k = prev[k])
+    path[n++] = k;
+  path[n++] = c; // path[n-1] -> ... -> path[0] is c -> ... -> h's class
+
+  printk("lockdep: acquiring %s while holding %s may deadlock\n",
+         cls[c].name, cls[h->cls].name);
+  who(cpuid(), p ? p->pid : 0, p ? p->name : "");
+  where("holds", h->cls, h->pc);
+  where("wants", c, pc);
+  if (n == 1)
+    printk("both locks are of class %s\n", cls[c].name);
+  else
+    printk("but this order has been seen before:\n");
+  for (i = n - 1; i > 0; i--) {
+    for (e = edges; e->a != path[i] || e->b != path[i - 1]; e++)
+      ;
+    who(e->hart, e->pid, e->name);
+    where("holds", e->a, e->apc);
+    where("wants", e->b, e->bpc);
+  }
+}
+
 // Learn that class c is acquired while h is held. Edges are only
 // ever added, so a bit seen set without the lock can be trusted:
-// the common case costs one load and no lock.
+// the common case costs one load and no lock. A new edge is
+// checked for a cycle before it is added.
 static void
 order(struct ldheld *h, int c, uint64 *pc)
 {
+  int id = cpuid();
+
   if (__atomic_load_n(&after[h->cls], __ATOMIC_RELAXED) & (1UL << c))
     return;
   ldlk();
-  if ((after[h->cls] & (1UL << c)) == 0)
-    newedge(h, c, pc);
+  if ((after[h->cls] & (1UL << c)) == 0) {
+    if (reach(c, h->cls)) {
+      busy[id] = 1; // printk() acquires pr.lock: don't check it
+      report(h, c, pc);
+      printk("lockdep: turning off the checker\n");
+      lockdep_on = 0;
+      busy[id] = 0;
+    } else {
+      newedge(h, c, pc);
+    }
+  }
   ldunlk();
 }
 
@@ -161,13 +256,15 @@ lockdep_acquire(struct spinlock *lk)
   uint64 pc[NTRACE];
   struct ldheld *h;
 
-  if (!lockdep_on)
+  if (!lockdep_on || busy[id])
     return;
   if (lk->cls == 0)
     panic("lockdep: lock without a class");
   trace((uint64)__builtin_frame_address(0), pc);
-  for (i = 0; i < nheld[id]; i++)
+  for (i = 0; i < nheld[id] && lockdep_on; i++)
     order(&held[id][i], lk->cls, pc);
+  if (!lockdep_on)
+    return;
   if (nheld[id] == MAXHELD)
     panic("lockdep: too many locks held");
   h = &held[id][nheld[id]++];
@@ -184,7 +281,7 @@ lockdep_release(struct spinlock *lk)
 {
   int id = cpuid(), i;
 
-  if (!lockdep_on)
+  if (!lockdep_on || busy[id])
     return;
   for (i = nheld[id] - 1; i >= 0; i--)
     if (held[id][i].lk == lk)
