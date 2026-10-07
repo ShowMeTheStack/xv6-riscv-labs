@@ -23,10 +23,11 @@ struct superblock {
 
 #define FSMAGIC 0x10203040
 
-#define NDIRECT   11 // addrs[NDIRECT] is singly, addrs[NDIRECT+1] doubly indirect
-#define NINDIRECT (BSIZE / sizeof(uint))
-#define MAXFILE   (NDIRECT + NINDIRECT)
-#define NLINK_MAX 32767 // nlink is a short; refuse links past its maximum
+#define NDIRECT    11 // addrs[NDIRECT] is singly, addrs[NDIRECT+1] doubly indirect
+#define NINDIRECT  (BSIZE / sizeof(uint))
+#define NDINDIRECT (NINDIRECT * NINDIRECT)
+#define MAXFILE    (NDIRECT + NINDIRECT)
+#define NLINK_MAX  32767 // nlink is a short; refuse links past its maximum
 
 // On-disk inode structure
 struct dinode {

@@ -412,7 +412,9 @@ ireclaim(int dev)
 // The content (data) associated with each inode is stored
 // in blocks on the disk. The first NDIRECT block numbers
 // are listed in ip->addrs[].  The next NINDIRECT blocks are
-// listed in block ip->addrs[NDIRECT].
+// listed in block ip->addrs[NDIRECT]. The next NDINDIRECT
+// blocks are found through block ip->addrs[NDIRECT+1], which
+// lists NINDIRECT indirect blocks of NINDIRECT blocks each.
 
 // Return the disk block address of the nth block in inode ip.
 // If there is no such block, bmap allocates one.
@@ -448,6 +450,42 @@ bmap(struct inode *ip, uint bn)
       addr = balloc(ip->dev);
       if (addr) {
         a[bn] = addr;
+        log_write(bp);
+      }
+    }
+    brelse(bp);
+    return addr;
+  }
+  bn -= NINDIRECT;
+
+  if (bn < NDINDIRECT) {
+    // Load the doubly-indirect block, allocating if necessary.
+    if ((addr = ip->addrs[NDIRECT + 1]) == 0) {
+      addr = balloc(ip->dev);
+      if (addr == 0)
+        return 0;
+      ip->addrs[NDIRECT + 1] = addr;
+    }
+    // Load the indirect block that maps bn, allocating if necessary.
+    bp = bread(ip->dev, addr);
+    a = (uint *)bp->data;
+    if ((addr = a[bn / NINDIRECT]) == 0) {
+      addr = balloc(ip->dev);
+      if (addr) {
+        a[bn / NINDIRECT] = addr;
+        log_write(bp);
+      }
+    }
+    brelse(bp);
+    if (addr == 0)
+      return 0;
+    // Find the data block in it, allocating if necessary.
+    bp = bread(ip->dev, addr);
+    a = (uint *)bp->data;
+    if ((addr = a[bn % NINDIRECT]) == 0) {
+      addr = balloc(ip->dev);
+      if (addr) {
+        a[bn % NINDIRECT] = addr;
         log_write(bp);
       }
     }
