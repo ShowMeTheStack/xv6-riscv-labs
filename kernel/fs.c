@@ -294,13 +294,21 @@ idup(struct inode *ip)
 void
 ilock(struct inode *ip)
 {
+  ilock_nested(ip, 0);
+}
+
+// Lock ip in role sub (see acquiresleep_nested), for an inode
+// locked while another inode is locked.
+void
+ilock_nested(struct inode *ip, int sub)
+{
   struct buf *bp;
   struct dinode *dip;
 
   if (ip == 0 || ip->ref < 1)
     panic("ilock");
 
-  acquiresleep(&ip->lock);
+  acquiresleep_nested(&ip->lock, sub);
 
   if (ip->valid == 0) {
     bp = bread(ip->dev, IBLOCK(ip->inum, sb));

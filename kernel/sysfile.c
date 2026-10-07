@@ -223,7 +223,7 @@ sys_unlink(void)
 
   if ((ip = dirlookup(dp, name, &off)) == 0)
     goto bad;
-  ilock(ip);
+  ilock_nested(ip, SUB_CHILD);
 
   if (ip->nlink < 1)
     panic("unlink: nlink < 1");
@@ -291,7 +291,7 @@ create(char *path, short type, short major, short minor)
     return 0;
   }
 
-  ilock(ip);
+  ilock_nested(ip, SUB_CHILD);
   ip->major = major;
   ip->minor = minor;
   ip->nlink = 1;

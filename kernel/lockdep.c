@@ -20,6 +20,7 @@
 #define MAXHELD  8  // spinlocks one hart can hold at once
 #define MAXSLEEP 8  // sleep-locks one process can hold at once
 #define NTRACE   5  // return addresses kept per acquisition
+#define NSUB     4  // subclasses per class (acquiresleep_nested)
 #define MAXEDGE  256
 
 #define USE_IRQ   1 // taken in an interrupt handler
@@ -30,6 +31,8 @@ struct ldclass {
   int sleep;                // 1 for a sleep-lock class
   int use;                  // USE_IRQ, USE_IRQON
   uint64 usepc[2][NTRACE];  // where each use was first seen
+  int sub[NSUB];            // the class of each subclass, if made
+  char subname[24];         // "inode/1", for a subclass
 };
 
 static struct ldclass cls[MAXCLASS];
@@ -77,6 +80,37 @@ lockdep_class(char *name, int sleep)
   ldunlk();
   pop_off();
   return c;
+}
+
+// Return the class for role sub of class c (sub 0 is c itself):
+// a class of its own, so that the order between roles can be
+// learned and checked like any other order.
+static int
+subclass(int c, int sub)
+{
+  int s, n;
+
+  if (sub == 0)
+    return c;
+  if (sub < 0 || sub >= NSUB)
+    panic("lockdep: bad subclass");
+  if ((s = __atomic_load_n(&cls[c].sub[sub], __ATOMIC_ACQUIRE)) != 0)
+    return s;
+  ldlk();
+  if ((s = cls[c].sub[sub]) == 0) {
+    if (nclass == MAXCLASS)
+      panic("lockdep: too many classes");
+    s = nclass;
+    n = strlen(safestrcpy(cls[s].subname, cls[c].name, 20));
+    cls[s].subname[n] = '/';
+    cls[s].subname[n + 1] = '0' + sub;
+    cls[s].name = cls[s].subname;
+    cls[s].sleep = cls[c].sleep;
+    __atomic_store_n(&nclass, s + 1, __ATOMIC_RELEASE);
+    __atomic_store_n(&cls[c].sub[sub], s, __ATOMIC_RELEASE);
+  }
+  ldunlk();
+  return s;
 }
 
 // One acquisition: which lock, its class, and where it happened.
@@ -362,28 +396,29 @@ lockdep_release(struct spinlock *lk)
   nheld[id]--;
 }
 
-// Called by acquiresleep() before it waits.
+// Called by acquiresleep_nested() before it waits.
 void
-lockdep_acquiresleep(struct sleeplock *lk)
+lockdep_acquiresleep(struct sleeplock *lk, int sub)
 {
   uint64 pc[NTRACE];
   struct proc *p;
-  int s;
+  int s, c;
 
   push_off(); // stay on this hart while using its list
   p = mycpu()->proc;
   if (lockdep_on && !busy[cpuid()]) {
     if (lk->cls == 0 || p == 0)
       panic("lockdep: acquiresleep");
+    c = subclass(lk->cls, sub);
     trace((uint64)__builtin_frame_address(0), pc);
     // a sleep-lock's holder runs with interrupts on, and sleeps
-    use(lk->cls, inirq[cpuid()] ? USE_IRQ : USE_IRQON, pc);
-    orderall(lk->cls, pc);
+    use(c, inirq[cpuid()] ? USE_IRQ : USE_IRQON, pc);
+    orderall(c, pc);
     s = p - proc;
     if (nsheld[s] == MAXSLEEP)
       panic("lockdep: too many sleep-locks held");
     if (lockdep_on)
-      push(&sheld[s][nsheld[s]++], lk, lk->cls, pc);
+      push(&sheld[s][nsheld[s]++], lk, c, pc);
   }
   pop_off();
 }

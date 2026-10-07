@@ -43,6 +43,7 @@ struct inode*   ialloc(uint, short);
 struct inode*   idup(struct inode*);
 void            iinit();
 void            ilock(struct inode*);
+void            ilock_nested(struct inode*, int);
 void            iput(struct inode*);
 void            iunlock(struct inode*);
 void            iunlockput(struct inode*);
@@ -66,7 +67,7 @@ int             lockdep_class(char*, int);
 void            lockdep_acquire(struct spinlock*);
 void            lockdep_release(struct spinlock*);
 void            lockdep_print(void);
-void            lockdep_acquiresleep(struct sleeplock*);
+void            lockdep_acquiresleep(struct sleeplock*, int);
 void            lockdep_releasesleep(struct sleeplock*);
 void            lockdep_irq_enter(void);
 void            lockdep_irq_exit(void);
@@ -127,6 +128,7 @@ void            pop_off(void);
 
 // sleeplock.c
 void            acquiresleep(struct sleeplock*);
+void            acquiresleep_nested(struct sleeplock*, int);
 void            releasesleep(struct sleeplock*);
 int             holdingsleep(struct sleeplock*);
 void            initsleeplock(struct sleeplock*, char*);

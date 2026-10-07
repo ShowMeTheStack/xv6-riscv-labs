@@ -22,7 +22,17 @@ initsleeplock(struct sleeplock *lk, char *name)
 void
 acquiresleep(struct sleeplock *lk)
 {
-  lockdep_acquiresleep(lk); // check the order before waiting
+  acquiresleep_nested(lk, 0);
+}
+
+// Acquire lk, maybe while holding another lock of its class.
+// sub names lk's role there (see sleeplock.h). The checker gives
+// each role a class of its own, so "a directory, then a file in
+// it" is an order it can check, not inode nested in inode.
+void
+acquiresleep_nested(struct sleeplock *lk, int sub)
+{
+  lockdep_acquiresleep(lk, sub); // check the order before waiting
   acquire(&lk->lk);
   while (lk->locked) {
     sleep_prepare(lk);
