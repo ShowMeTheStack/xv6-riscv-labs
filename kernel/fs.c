@@ -106,6 +106,26 @@ bfree(int dev, uint b)
   brelse(bp);
 }
 
+// Count the free blocks in the bitmap.
+// For testing: the count can be stale by the time it is used.
+int
+nfreeblocks(uint dev)
+{
+  int b, bi, n;
+  struct buf *bp;
+
+  n = 0;
+  for (b = 0; b < sb.size; b += BPB) {
+    bp = bread(dev, BBLOCK(b, sb));
+    for (bi = 0; bi < BPB && b + bi < sb.size; bi++) {
+      if ((bp->data[bi / 8] & (1 << (bi % 8))) == 0)
+        n++;
+    }
+    brelse(bp);
+  }
+  return n;
+}
+
 // Inodes.
 //
 // An inode describes a single unnamed file.

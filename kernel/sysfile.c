@@ -528,3 +528,10 @@ sys_pipe(void)
   }
   return 0;
 }
+
+// Return the number of free blocks on the root device.
+uint64
+sys_freeblocks(void)
+{
+  return nfreeblocks(ROOTDEV);
+}
