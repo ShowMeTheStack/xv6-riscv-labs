@@ -325,12 +325,33 @@ fail:
   return 0;
 }
 
-// ip is a locked inode. While it is a symbolic link, replace it
-// by the inode its target names, following at most MAXSYMLINK
-// links. Returns a locked inode that is not a link, or 0 (with
-// ip released) if a target is missing or there are too many links.
+// path names a symbolic link whose content is target. Change
+// path to name what target names: target itself if it starts
+// with '/', otherwise target in the link's directory.
+static int
+resolve(char *path, char *target)
+{
+  int dirlen = strlen(path);
+
+  while (dirlen > 0 && path[dirlen - 1] == '/') // trailing slashes
+    dirlen--;
+  while (dirlen > 0 && path[dirlen - 1] != '/') // the link's name
+    dirlen--;
+  if (target[0] == '/')
+    dirlen = 0;
+  if (dirlen + strlen(target) >= MAXPATH)
+    return -1;
+  safestrcpy(path + dirlen, target, MAXPATH - dirlen);
+  return 0;
+}
+
+// ip is a locked inode, found by the name path (a MAXPATH buffer).
+// While ip is a symbolic link, replace it by the inode its target
+// names, following at most MAXSYMLINK links. Returns a locked
+// inode that is not a link, or 0 (with ip released) if a target
+// is missing or there are too many links.
 static struct inode *
-follow(struct inode *ip)
+follow(struct inode *ip, char *path)
 {
   char target[MAXPATH];
   int n, depth;
@@ -345,7 +366,7 @@ follow(struct inode *ip)
     // release the link before looking up its target: namei locks
     // directories, and the target may lead through this very link.
     iunlockput(ip);
-    if ((ip = namei(target)) == 0)
+    if (resolve(path, target) < 0 || (ip = namei(path)) == 0)
       return 0;
     ilock(ip);
   }
@@ -385,7 +406,7 @@ sys_open(void)
     ilock(ip);
   }
 
-  if (!(omode & O_NOFOLLOW) && (ip = follow(ip)) == 0) {
+  if (!(omode & O_NOFOLLOW) && (ip = follow(ip, path)) == 0) {
     end_op();
     return -1;
   }
