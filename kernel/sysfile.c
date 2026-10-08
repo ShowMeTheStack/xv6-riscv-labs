@@ -255,6 +255,18 @@ bad:
   return -1;
 }
 
+// The rename lock. A rename between two directories holds it
+// from its first look at the tree to the end, so only one such
+// rename at a time can be deciding which directory lies inside
+// which, or changing it (Linux calls it s_vfs_rename_mutex).
+static struct sleeplock renamelock;
+
+void
+renameinit(void)
+{
+  initsleeplock(&renamelock, "rename");
+}
+
 // Is name "." or ".."?
 static int
 isdots(char *name)
@@ -275,6 +287,59 @@ itype(struct inode *ip)
   return type;
 }
 
+// Look up name in directory dp, which the caller must not have
+// locked. Returns the inode, referenced but not locked, or 0.
+static struct inode *
+lookup(struct inode *dp, char *name)
+{
+  struct inode *ip;
+
+  ilock(dp);
+  ip = dirlookup(dp, name, 0);
+  iunlock(dp);
+  return ip;
+}
+
+// With dp locked: does name in dp still refer to ip (0: to
+// nothing)? If it does, *poff is set to the entry's offset.
+static int
+samename(struct inode *dp, char *name, struct inode *ip, uint *poff)
+{
+  struct inode *x;
+
+  x = dirlookup(dp, name, poff);
+  if (x != 0)
+    iput(x); // still referenced by its directory entry: not freed
+  return x == ip;
+}
+
+// Is directory a the same as directory b, or above it in the
+// tree? Walks up from b through ".." entries, locking one
+// directory at a time. The caller holds renamelock, so no
+// directory moves during the walk, and holds no inode lock:
+// locking upwards while holding one could deadlock.
+static int
+isancestor(struct inode *a, struct inode *b)
+{
+  struct inode *ip, *next;
+  int r;
+
+  ip = idup(b);
+  while (ip != a && ip->inum != ROOTINO) {
+    ilock(ip);
+    if (ip->nlink == 0) { // removed; the caller's checks will fail
+      iunlockput(ip);
+      return 0;
+    }
+    next = dirlookup(ip, "..", 0);
+    iunlockput(ip);
+    ip = next;
+  }
+  r = (ip == a);
+  iput(ip);
+  return r;
+}
+
 // Give the file or directory old the name new, in one step:
 // old disappears and new appears in the same transaction.
 uint64
@@ -282,8 +347,9 @@ sys_rename(void)
 {
   char name1[DIRSIZ], name2[DIRSIZ], old[MAXPATH], new[MAXPATH];
   struct inode *dp1 = 0, *dp2 = 0, *ip = 0, *tp = 0;
+  short type1;
   uint off1, off2;
-  int r = -1;
+  int twodirs = 0, r = -1;
 
   if (argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
     return -1;
@@ -292,30 +358,52 @@ sys_rename(void)
   if ((dp1 = nameiparent(old, name1)) == 0 ||
       (dp2 = nameiparent(new, name2)) == 0)
     goto out;
-  if (isdots(name1) || isdots(name2))
+  if (isdots(name1) || isdots(name2) || dp1->dev != dp2->dev)
     goto out;
-  if (dp1 != dp2)
-    goto out; // two directories: not yet
+  twodirs = (dp1 != dp2);
+  if (twodirs)
+    acquiresleep(&renamelock);
 
-  ilock(dp1);
-  if ((ip = dirlookup(dp1, name1, &off1)) == 0)
-    goto unlock;
-  tp = dirlookup(dp1, name2, &off2);
+  // What do the names refer to? Decide everything that depends
+  // on the shape of the tree now, while no inode is locked.
+  if ((ip = lookup(dp1, name1)) == 0)
+    goto out;
+  tp = lookup(dp2, name2);
   if (tp == ip) { // two names for one file: nothing to do
     r = 0;
-    goto unlock;
+    goto out;
   }
+  type1 = itype(ip);
   // Replace only a non-directory, and only with a non-directory.
-  if (tp != 0 && (itype(ip) == T_DIR || itype(tp) == T_DIR))
+  if (tp != 0 && (type1 == T_DIR || itype(tp) == T_DIR))
+    goto out;
+  if (twodirs && type1 == T_DIR)
+    goto out; // moving a directory: not yet
+
+  // Lock the parents, the one higher in the tree first. Two
+  // unrelated directories can be locked in either order, because
+  // renamelock keeps every other two-directory rename out.
+  if (twodirs && isancestor(dp2, dp1)) {
+    ilock(dp2);
+    ilock(dp1);
+  } else {
+    ilock(dp1);
+    if (twodirs)
+      ilock(dp2);
+  }
+  // The names were looked up unlocked: do they still mean the
+  // same? (And is dp2 still in the tree?)
+  if (!samename(dp1, name1, ip, &off1) || !samename(dp2, name2, tp, &off2) ||
+      dp2->nlink == 0)
     goto unlock;
 
   if (tp != 0) {
     ilock(tp);
-    dirset(dp1, off2, ip->inum); // new now names ip
+    dirset(dp2, off2, ip->inum); // new now names ip
     tp->nlink--;
     iupdate(tp);
     iunlock(tp);
-  } else if (dirlink(dp1, name2, ip->inum) < 0) {
+  } else if (dirlink(dp2, name2, ip->inum) < 0) {
     goto unlock; // no free block for the new entry: nothing changed
   }
   dirset(dp1, off1, 0); // old disappears
@@ -323,7 +411,11 @@ sys_rename(void)
 
 unlock:
   iunlock(dp1);
+  if (twodirs)
+    iunlock(dp2);
 out:
+  if (twodirs)
+    releasesleep(&renamelock);
   if (tp)
     iput(tp); // frees tp if that was its last link
   if (ip)
