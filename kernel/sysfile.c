@@ -255,6 +255,18 @@ bad:
   return -1;
 }
 
+// Give the file or directory old the name new, in one step:
+// old disappears and new appears in the same transaction.
+uint64
+sys_rename(void)
+{
+  char old[MAXPATH], new[MAXPATH];
+
+  if (argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
+    return -1;
+  return -1; // not yet
+}
+
 static struct inode *
 create(char *path, short type, short major, short minor)
 {
