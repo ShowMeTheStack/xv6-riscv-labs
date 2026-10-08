@@ -346,9 +346,9 @@ uint64
 sys_rename(void)
 {
   char name1[DIRSIZ], name2[DIRSIZ], old[MAXPATH], new[MAXPATH];
-  struct inode *dp1 = 0, *dp2 = 0, *ip = 0, *tp = 0;
+  struct inode *dp1 = 0, *dp2 = 0, *ip = 0, *tp = 0, *pp;
   short type1;
-  uint off1, off2;
+  uint off1, off2, off;
   int twodirs = 0, r = -1;
 
   if (argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
@@ -377,8 +377,10 @@ sys_rename(void)
   // Replace only a non-directory, and only with a non-directory.
   if (tp != 0 && (type1 == T_DIR || itype(tp) == T_DIR))
     goto out;
-  if (twodirs && type1 == T_DIR)
-    goto out; // moving a directory: not yet
+  // A directory may not move into itself or below itself: it
+  // would leave the tree, taking a loop of directories with it.
+  if (twodirs && type1 == T_DIR && isancestor(ip, dp2))
+    goto out;
 
   // Lock the parents, the one higher in the tree first. Two
   // unrelated directories can be locked in either order, because
@@ -396,6 +398,9 @@ sys_rename(void)
   if (!samename(dp1, name1, ip, &off1) || !samename(dp2, name2, tp, &off2) ||
       dp2->nlink == 0)
     goto unlock;
+  // A directory's ".." will add a link to dp2.
+  if (twodirs && type1 == T_DIR && dp2->nlink >= NLINK_MAX)
+    goto unlock;
 
   if (tp != 0) {
     ilock(tp);
@@ -407,6 +412,21 @@ sys_rename(void)
     goto unlock; // no free block for the new entry: nothing changed
   }
   dirset(dp1, off1, 0); // old disappears
+
+  if (twodirs && type1 == T_DIR) {
+    // ip's ".." must name its new parent, and the link that ".."
+    // is moves from dp1 to dp2.
+    ilock(ip);
+    if ((pp = dirlookup(ip, "..", &off)) != dp1)
+      panic("rename: ..");
+    iput(pp);
+    dirset(ip, off, dp2->inum);
+    iunlock(ip);
+    dp1->nlink--;
+    iupdate(dp1);
+    dp2->nlink++;
+    iupdate(dp2);
+  }
   r = 0;
 
 unlock:
