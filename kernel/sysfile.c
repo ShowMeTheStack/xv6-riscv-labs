@@ -255,16 +255,85 @@ bad:
   return -1;
 }
 
+// Is name "." or ".."?
+static int
+isdots(char *name)
+{
+  return namecmp(name, ".") == 0 || namecmp(name, "..") == 0;
+}
+
+// The type of ip, which the caller must not have locked.
+// An inode's type cannot change while we hold a reference to it.
+static short
+itype(struct inode *ip)
+{
+  short type;
+
+  ilock(ip);
+  type = ip->type;
+  iunlock(ip);
+  return type;
+}
+
 // Give the file or directory old the name new, in one step:
 // old disappears and new appears in the same transaction.
 uint64
 sys_rename(void)
 {
-  char old[MAXPATH], new[MAXPATH];
+  char name1[DIRSIZ], name2[DIRSIZ], old[MAXPATH], new[MAXPATH];
+  struct inode *dp1 = 0, *dp2 = 0, *ip = 0, *tp = 0;
+  uint off1, off2;
+  int r = -1;
 
   if (argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
     return -1;
-  return -1; // not yet
+
+  begin_op();
+  if ((dp1 = nameiparent(old, name1)) == 0 ||
+      (dp2 = nameiparent(new, name2)) == 0)
+    goto out;
+  if (isdots(name1) || isdots(name2))
+    goto out;
+  if (dp1 != dp2)
+    goto out; // two directories: not yet
+
+  ilock(dp1);
+  if ((ip = dirlookup(dp1, name1, &off1)) == 0)
+    goto unlock;
+  tp = dirlookup(dp1, name2, &off2);
+  if (tp == ip) { // two names for one file: nothing to do
+    r = 0;
+    goto unlock;
+  }
+  // Replace only a non-directory, and only with a non-directory.
+  if (tp != 0 && (itype(ip) == T_DIR || itype(tp) == T_DIR))
+    goto unlock;
+
+  if (tp != 0) {
+    ilock(tp);
+    dirset(dp1, off2, ip->inum); // new now names ip
+    tp->nlink--;
+    iupdate(tp);
+    iunlock(tp);
+  } else if (dirlink(dp1, name2, ip->inum) < 0) {
+    goto unlock; // no free block for the new entry: nothing changed
+  }
+  dirset(dp1, off1, 0); // old disappears
+  r = 0;
+
+unlock:
+  iunlock(dp1);
+out:
+  if (tp)
+    iput(tp); // frees tp if that was its last link
+  if (ip)
+    iput(ip);
+  if (dp2)
+    iput(dp2);
+  if (dp1)
+    iput(dp1);
+  end_op();
+  return r;
 }
 
 static struct inode *

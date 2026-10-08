@@ -645,6 +645,24 @@ dirlink(struct inode *dp, char *name, uint inum)
   return 0;
 }
 
+// Point the entry at byte offset off in directory dp at inode
+// inum, keeping its name; inum 0 frees the entry, as unlink does.
+// Caller must hold dp->lock. The entry exists, so its block is
+// already allocated and the write cannot run out of space.
+void
+dirset(struct inode *dp, uint off, uint inum)
+{
+  struct dirent de;
+
+  if (readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
+    panic("dirset: readi");
+  if (inum == 0)
+    memset(&de, 0, sizeof(de));
+  de.inum = inum;
+  if (writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
+    panic("dirset: writei");
+}
+
 // Paths
 
 // Copy the next path element from path into name.
