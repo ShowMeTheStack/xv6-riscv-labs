@@ -280,7 +280,10 @@ create(char *path, short type, short major, short minor)
   if ((ip = dirlookup(dp, name, 0)) != 0) {
     iunlockput(dp);
     ilock(ip);
-    if (type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE))
+    // open(O_CREATE) of an existing name: a file or device is
+    // used as it is, and a symbolic link is left for open to follow.
+    if (type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE ||
+                           ip->type == T_SYMLINK))
       return ip;
     iunlockput(ip);
     return 0;
