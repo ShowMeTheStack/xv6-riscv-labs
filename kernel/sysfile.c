@@ -394,6 +394,63 @@ sys_open(void)
   return fd;
 }
 
+// Create path as a symbolic link whose content is target.
+// target is not looked up: it may name nothing yet.
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH], name[DIRSIZ];
+  struct inode *dp, *ip;
+  int n;
+
+  if ((n = argstr(0, target, MAXPATH)) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+  if (n == 0) // an empty target names nothing
+    return -1;
+
+  begin_op();
+  if ((dp = nameiparent(path, name)) == 0) {
+    end_op();
+    return -1;
+  }
+  ilock(dp);
+  // as in create(): no new names in a removed directory,
+  // and never a name that exists.
+  if (dp->nlink == 0)
+    goto bad;
+  if ((ip = dirlookup(dp, name, 0)) != 0) {
+    iput(ip);
+    goto bad;
+  }
+  if ((ip = ialloc(dp->dev, T_SYMLINK)) == 0)
+    goto bad;
+  ilock(ip);
+  ip->nlink = 1;
+  iupdate(ip);
+
+  // write the target before the name exists, so that no one
+  // can ever find a link without one. The NUL is not stored:
+  // the size of the inode is the length of the target.
+  if (writei(ip, 0, (uint64)target, 0, n) != n ||
+      dirlink(dp, name, ip->inum) < 0) {
+    // out of disk blocks: no name was made, and iput frees
+    // the inode and any block it got.
+    ip->nlink = 0;
+    iupdate(ip);
+    iunlockput(ip);
+    goto bad;
+  }
+  iunlockput(ip);
+  iunlockput(dp);
+  end_op();
+  return 0;
+
+bad:
+  iunlockput(dp);
+  end_op();
+  return -1;
+}
+
 uint64
 sys_mkdir(void)
 {
