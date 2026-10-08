@@ -325,6 +325,37 @@ fail:
   return 0;
 }
 
+// ip is a locked inode. While it is a symbolic link, replace it
+// by the inode its target names, following at most MAXSYMLINK
+// links. Returns a locked inode that is not a link, or 0 (with
+// ip released) if a target is missing or there are too many links.
+static struct inode *
+follow(struct inode *ip)
+{
+  char target[MAXPATH];
+  int n, depth;
+
+  for (depth = 0; ip->type == T_SYMLINK; depth++) {
+    if (depth >= MAXSYMLINK) // probably a cycle
+      goto bad;
+    n = ip->size;
+    if (n <= 0 || n >= MAXPATH || readi(ip, 0, (uint64)target, 0, n) != n)
+      goto bad;
+    target[n] = 0;
+    // release the link before looking up its target: namei locks
+    // directories, and the target may lead through this very link.
+    iunlockput(ip);
+    if ((ip = namei(target)) == 0)
+      return 0;
+    ilock(ip);
+  }
+  return ip;
+
+bad:
+  iunlockput(ip);
+  return 0;
+}
+
 uint64
 sys_open(void)
 {
@@ -352,11 +383,19 @@ sys_open(void)
       return -1;
     }
     ilock(ip);
-    if (ip->type == T_DIR && omode != O_RDONLY) {
-      iunlockput(ip);
-      end_op();
-      return -1;
-    }
+  }
+
+  if (!(omode & O_NOFOLLOW) && (ip = follow(ip)) == 0) {
+    end_op();
+    return -1;
+  }
+
+  // a directory, or a link opened with O_NOFOLLOW, is read-only.
+  if ((ip->type == T_DIR || ip->type == T_SYMLINK) &&
+      (omode & ~O_NOFOLLOW) != O_RDONLY) {
+    iunlockput(ip);
+    end_op();
+    return -1;
   }
 
   if (ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)) {
