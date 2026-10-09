@@ -95,6 +95,10 @@ e1000_init(void)
                    E1000_TCTL_COLD;
   *R(E1000_TIPG) = 10 | (8 << 10) | (6 << 20);
   *R(E1000_RCTL) = E1000_RCTL_EN | E1000_RCTL_BAM | E1000_RCTL_SECRC;
+
+  // interrupt as soon as a packet has arrived (no delay).
+  *R(E1000_RDTR) = 0;
+  *R(E1000_IMS) = E1000_ICR_RXT0;
 }
 
 // hand the packet in buf (a kalloc() page) to the device. on
@@ -140,4 +144,60 @@ e1000_transmit(char *buf, int len)
 
   release(&e1000.lock);
   return 0;
+}
+
+// the e1000 raised an interrupt: some packets have arrived.
+// called from devintr() with interrupts off, on whichever hart
+// claimed the interrupt.
+void
+e1000_intr(void)
+{
+  char *bufs[RX_RING_SIZE];
+  int lens[RX_RING_SIZE];
+  int n = 0;
+
+  acquire(&e1000.lock);
+
+  // reading the interrupt cause clears it. a packet that arrives
+  // after this read raises a new interrupt.
+  *R(E1000_ICR);
+
+  // the slot after the tail is the oldest one the device may have
+  // filled. take filled slots until there are none, but go at most
+  // once around the ring.
+  for (int k = 0; k < RX_RING_SIZE; k++) {
+    int i = (*R(E1000_RDT) + 1) % RX_RING_SIZE;
+    if ((e1000.rx[i].status & E1000_RXD_STAT_DD) == 0)
+      break;
+
+    // order our reads of the descriptor and the packet after
+    // the device's write of DD.
+    io_fence();
+
+    // pass the full buffer up and put a fresh one in the slot.
+    // if there is no memory, drop the packet and reuse the buffer.
+    char *fresh = kalloc();
+    if (fresh) {
+      bufs[n] = e1000.rx_bufs[i];
+      lens[n] = e1000.rx[i].length;
+      n++;
+      e1000.rx_bufs[i] = fresh;
+      e1000.rx[i].addr = (uint64)fresh;
+    }
+    e1000.rx[i].status = 0;
+
+    // the descriptor must be in memory before the device can see
+    // the new tail and fill the slot again.
+    io_fence();
+
+    // give the slot back to the device.
+    *R(E1000_RDT) = i;
+  }
+
+  release(&e1000.lock);
+
+  // hand the packets to the network stack without holding
+  // e1000.lock: answering a packet calls e1000_transmit().
+  for (int j = 0; j < n; j++)
+    net_rx(bufs[j], lens[j]);
 }

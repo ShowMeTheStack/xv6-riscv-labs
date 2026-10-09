@@ -37,6 +37,11 @@
 #define E1000_REGS      0x40000000L
 #define E1000_REGS_SIZE 0x20000L
 
+// qemu wires the PCIe interrupt pins INTA-INTD to PLIC IRQs
+// 32-35, rotated by device number ("swizzled"): pin INTA of
+// device 1, the e1000, is IRQ 32 + (0 + 1) % 4 = 33.
+#define E1000_IRQ 33
+
 // core-local interrupt controller (CLINT)
 #define CLINT_BASE  0x02000000L
 #define CLINT(hart) (CLINT_BASE + (hart) * 4)
