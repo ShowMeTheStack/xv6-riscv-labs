@@ -181,9 +181,11 @@ void            plic_complete(int);
 void            e1000_init(void);
 int             e1000_transmit(char *, int);
 void            e1000_intr(void);
+extern uint8    local_mac[6];
 
 // net.c
 void            net_rx(char *, int);
+int             net_tx_udp(char *, int, uint32, uint16, uint16);
 
 // pci.c
 void            pci_init(void);
