@@ -32,6 +32,12 @@ kvmmake(void)
   // virtio mmio disk interface
   kvmmap(kpgtbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
 
+  // PCIe configuration space for bus 0
+  kvmmap(kpgtbl, PCIE_ECAM, PCIE_ECAM, PCIE_ECAM_SIZE, PTE_R | PTE_W);
+
+  // e1000 registers
+  kvmmap(kpgtbl, E1000_REGS, E1000_REGS, E1000_REGS_SIZE, PTE_R | PTE_W);
+
   // PLIC
   kvmmap(kpgtbl, PLIC, PLIC, 0x4000000, PTE_R | PTE_W);
 

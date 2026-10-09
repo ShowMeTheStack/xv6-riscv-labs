@@ -8,6 +8,8 @@
 // 0C000000 -- PLIC
 // 10000000 -- uart0
 // 10001000 -- virtio disk
+// 30000000 -- PCIe configuration space (ECAM)
+// 40000000 -- PCIe memory window; we put the e1000's registers here
 // 80000000 -- qemu's boot ROM loads the kernel here,
 //             then jumps here.
 // unused RAM after 80000000.
@@ -24,6 +26,16 @@
 // virtio mmio interface
 #define VIRTIO0     0x10001000
 #define VIRTIO0_IRQ 1
+
+// qemu's PCIe host bridge: configuration space for every
+// bus/device/function, memory-mapped ("ECAM"). bus 0 is enough.
+#define PCIE_ECAM      0x30000000L
+#define PCIE_ECAM_SIZE 0x100000L
+
+// where pci_init() asks the e1000 to decode its registers
+// (BAR 0), inside the PCIe memory window at 0x40000000.
+#define E1000_REGS      0x40000000L
+#define E1000_REGS_SIZE 0x20000L
 
 // core-local interrupt controller (CLINT)
 #define CLINT_BASE  0x02000000L
