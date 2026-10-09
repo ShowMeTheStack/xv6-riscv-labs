@@ -179,6 +179,7 @@ void            plic_complete(int);
 
 // e1000.c
 void            e1000_init(void);
+int             e1000_transmit(char *, int);
 
 // pci.c
 void            pci_init(void);

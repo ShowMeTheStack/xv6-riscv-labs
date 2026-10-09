@@ -96,3 +96,48 @@ e1000_init(void)
   *R(E1000_TIPG) = 10 | (8 << 10) | (6 << 20);
   *R(E1000_RCTL) = E1000_RCTL_EN | E1000_RCTL_BAM | E1000_RCTL_SECRC;
 }
+
+// hand the packet in buf (a kalloc() page) to the device. on
+// success the driver owns buf and frees it once the device has
+// sent it. returns -1 if the ring is full; the caller then still
+// owns buf.
+// may be called on any hart, from system calls and interrupts.
+int
+e1000_transmit(char *buf, int len)
+{
+  acquire(&e1000.lock);
+
+  // TDT is the next slot the driver may fill. the device sends
+  // the slots from TDH up to, but not including, TDT, so TDT
+  // equal to TDH means "nothing to send": TDT must never move
+  // onto TDH, and one slot always stays empty. the slot must
+  // also be done (DD): the device may still be reading it.
+  int i = *R(E1000_TDT);
+  if ((i + 1) % TX_RING_SIZE == *R(E1000_TDH) ||
+      (e1000.tx[i].status & E1000_TXD_STAT_DD) == 0) {
+    release(&e1000.lock);
+    return -1;
+  }
+  // order our reads of the slot after the device's write of DD.
+  io_fence();
+
+  // the device has sent the slot's previous packet: free it.
+  if (e1000.tx_bufs[i])
+    kfree(e1000.tx_bufs[i]);
+  e1000.tx_bufs[i] = buf;
+
+  e1000.tx[i].addr = (uint64)buf;
+  e1000.tx[i].length = len;
+  e1000.tx[i].cmd = E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS;
+  e1000.tx[i].status = 0;
+
+  // the descriptor must be in memory before the device can see
+  // the new tail and read it.
+  io_fence();
+
+  // give the slot to the device.
+  *R(E1000_TDT) = (i + 1) % TX_RING_SIZE;
+
+  release(&e1000.lock);
+  return 0;
+}
