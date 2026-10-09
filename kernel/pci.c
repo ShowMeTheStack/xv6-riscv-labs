@@ -49,6 +49,7 @@ pci_init(void)
     int pin = (h[PCI_INTR] >> 8) & 0xff; // 1 = INTA ... 4 = INTD
     printk("pci: e1000 at 0:%d.0, %d bytes of registers at 0x%lx, INT%c\n",
            dev, size, E1000_REGS, 'A' + pin - 1);
+    e1000_init();
     return;
   }
   panic("pci: no e1000");

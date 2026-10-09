@@ -177,6 +177,9 @@ void            plicinithart(void);
 int             plic_claim(void);
 void            plic_complete(int);
 
+// e1000.c
+void            e1000_init(void);
+
 // pci.c
 void            pci_init(void);
 
