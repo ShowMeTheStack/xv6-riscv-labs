@@ -43,3 +43,7 @@ entry("sbrk");
 entry("pause");
 entry("uptime");
 entry("sync");
+entry("bind");
+entry("unbind");
+entry("send");
+entry("recv");

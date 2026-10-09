@@ -101,14 +101,6 @@ arp_rx(char *buf, int len)
     kfree(buf);
 }
 
-// a UDP packet with len bytes of data at buf + NET_HDRS has
-// arrived for local port dport. for now, drop it.
-static void
-udp_rx(char *buf, int len, uint32 sip, uint16 sport, uint16 dport)
-{
-  kfree(buf);
-}
-
 // check an IPv4 packet's headers and pass UDP packets on.
 static void
 ip_rx(char *buf, int len)
@@ -134,8 +126,8 @@ ip_rx(char *buf, int len)
     return;
   }
 
-  udp_rx(buf, ulen - sizeof(*udp), ntohl(ip->ip_src), ntohs(udp->sport),
-         ntohs(udp->dport));
+  sock_rx(buf, ulen - sizeof(*udp), ntohl(ip->ip_src), ntohs(udp->sport),
+          ntohs(udp->dport));
 }
 
 // a packet of len bytes has arrived in buf (a kalloc() page).

@@ -187,6 +187,10 @@ extern uint8    local_mac[6];
 void            net_rx(char *, int);
 int             net_tx_udp(char *, int, uint32, uint16, uint16);
 
+// socket.c
+void            sockinit(void);
+void            sock_rx(char *, int, uint32, uint16, uint16);
+
 // pci.c
 void            pci_init(void);
 

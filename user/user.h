@@ -25,6 +25,10 @@ char *sys_sbrk(int, int);
 int pause(int);
 int uptime(void);
 int sync(void);
+int bind(int);
+int unbind(int);
+int send(uint32, uint16, uint16, char *, int);
+int recv(uint16, uint32 *, uint16 *, char *, int);
 
 // ulib.c
 int stat(const char *, struct stat *);
