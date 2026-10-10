@@ -1,0 +1,54 @@
+xv6-riscv-labs: reference solutions for the extension labs of "xv6, line by line"
+Copyright (c) 2026 Jyotiprakash Mishra <mail@jyotiprakash.org>
+https://xv6.jyotiprakash.org/labs/
+
+This repository is a fork of xv6-riscv (https://github.com/mit-pdos/xv6-riscv). It holds
+two kinds of material, under different terms.
+
+
+1. xv6 itself: MIT license
+   ----------------------------------------------------------------------------------
+
+   Every file as it exists at xv6-riscv commit 06aad25, and the whole history of the
+   upstream branch `riscv`, is by Frans Kaashoek, Robert Morris, Russ Cox and the other
+   xv6 authors, under the MIT license in the LICENSE file of that tree. Nothing here
+   changes those terms.
+
+
+2. The extension labs: GNU General Public License v3.0 or later, with an attribution term
+   ----------------------------------------------------------------------------------
+
+   Covered: every change made on the branches ext/01-trace ... ext/25-e1000 relative to
+   xv6-riscv commit 06aad25, that is, everything shown by
+
+       git diff 06aad25 ext/NN-name
+
+   including new files (for example user/cowtest.c, kernel/swap.c, nettest.py) and the
+   added and changed lines in xv6's own files. These changes are by Jyotiprakash Mishra.
+
+   License text: LICENSE in this branch (GNU GPL v3.0). You may use, study, modify and
+   distribute this code under GPL-3.0-or-later. A work that contains or is derived from
+   it must be distributed under the same license, with its source code. Because the
+   lab code is combined with MIT-licensed xv6 code, the combined branches are
+   distributed under the GPL; the MIT notice for the xv6 parts must be kept as well.
+
+   Additional term under section 7(b) of the GNU GPL v3.0:
+   Every copy and every derived work must preserve the following author attribution,
+   in the source files that contain the covered code and in any Appropriate Legal
+   Notices that the work displays:
+
+       Based on the extension labs of "xv6, line by line" by Jyotiprakash Mishra
+       (https://xv6.jyotiprakash.org)
+
+   Removing or obscuring this attribution is a violation of the license.
+
+
+3. The lab write-ups
+   ----------------------------------------------------------------------------------
+
+   The specifications, design questions, hints, debugging clinics and guided reveals
+   that go with these branches are published at https://xv6.jyotiprakash.org/labs/
+   under CC BY-NC-SA 4.0; see the NOTICE of
+   https://github.com/ShowMeTheStack/xv6-line-by-line.
+
+For other terms, including commercial use, write to mail@jyotiprakash.org.
